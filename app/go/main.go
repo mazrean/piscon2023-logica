@@ -967,8 +967,8 @@ func getLendingsHandler(c echo.Context) error {
 }
 
 type ReturnLendingsRequest struct {
-	BookIDs  []string `json:"book_ids"`
 	MemberID string   `json:"member_id"`
+	BookIDs  []string `json:"book_ids"`
 }
 
 // 蔵書を返却
