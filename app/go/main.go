@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -87,6 +88,11 @@ func main() {
 			lendingsAPI.GET("", getLendingsHandler)
 			lendingsAPI.POST("/return", returnLendingsHandler)
 		}
+	}
+
+	err = initMemberCount()
+	if err != nil {
+		panic(err)
 	}
 
 	e.Logger.Fatal(e.Start(":8080"))
@@ -270,6 +276,11 @@ func initializeHandler(c echo.Context) error {
 		log.Panic(err.Error())
 	}
 
+	err = initMemberCount()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
 	return c.JSON(http.StatusOK, InitializeHandlerResponse{
 		Language: "Go",
 	})
@@ -280,6 +291,22 @@ func initializeHandler(c echo.Context) error {
 Members API
 ---------------------------------------------------------------
 */
+
+var memberCount = atomic.Int64{}
+
+func initMemberCount() error {
+	var count struct {
+		Count int64 `db:"count"`
+	}
+	err := db.Get(&count, "SELECT COUNT(*) FROM `member`")
+	if err != nil {
+		return fmt.Errorf("failed to get member count:%w", err)
+	}
+
+	memberCount.Store(count.Count)
+
+	return nil
+}
 
 type PostMemberRequest struct {
 	Name        string `json:"name"`
@@ -321,6 +348,7 @@ func postMemberHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+	memberCount.Add(1)
 
 	return c.JSON(http.StatusCreated, res)
 }
@@ -378,11 +406,7 @@ func getMembersHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "no members to show in this page")
 	}
 
-	var total int
-	err = tx.GetContext(c.Request().Context(), &total, "SELECT COUNT(*) FROM `member`")
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
+	total := int(memberCount.Load())
 
 	_ = tx.Commit()
 
