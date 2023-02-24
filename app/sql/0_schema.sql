@@ -38,5 +38,5 @@ CREATE TABLE `member` (
   `banned` tinyint(1) NOT NULL,
   `created_at` datetime(6) NOT NULL,
   PRIMARY KEY (`id`),
-  INDEX `idx_member_name`(`name`)
+  INDEX `idx_member_name_banned` (`banned`, `name`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
