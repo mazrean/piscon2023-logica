@@ -37,5 +37,6 @@ CREATE TABLE `member` (
   `phone_number` varchar(255) NOT NULL,
   `banned` tinyint(1) NOT NULL,
   `created_at` datetime(6) NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  INDEX `idx_member_name`(`name`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
