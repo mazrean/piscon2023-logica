@@ -298,7 +298,7 @@ func initMemberCount() error {
 	var count struct {
 		Count int64 `db:"count"`
 	}
-	err := db.Get(&count, "SELECT COUNT(*) FROM `member`")
+	err := db.Get(&count, "SELECT COUNT(*) AS count FROM `member`")
 	if err != nil {
 		return fmt.Errorf("failed to get member count:%w", err)
 	}
