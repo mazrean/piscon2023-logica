@@ -735,6 +735,7 @@ func getBooksHandler(c echo.Context) error {
 		args = append(args, "%"+author+"%")
 	}
 	query = strings.TrimSuffix(query, "AND ")
+	query += "ORDER BY id "
 	query += "LIMIT ? OFFSET ?"
 	args = append(args, bookPageLimit, (page-1)*bookPageLimit)
 
