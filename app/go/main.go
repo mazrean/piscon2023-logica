@@ -390,7 +390,9 @@ func getMembersHandler(c echo.Context) error {
 
 	query := "SELECT * FROM `member` WHERE `banned` = false "
 	switch order {
-	case "name_asc", "":
+	case "":
+		query += "ORDER BY `id` ASC "
+	case "name_asc":
 		query += "ORDER BY `name` ASC "
 	case "name_desc":
 		query += " ORDER BY `name` DESC "
