@@ -716,11 +716,30 @@ func getBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "no books found")
 	}
 
-	query = strings.ReplaceAll(query, "COUNT(*)", "*")
+	args = []any{}
+	query = "SELECT  `book`.`id` AS `book.id`, `book`.`title` AS `book.title`, `book`.`author` AS `book.author`, `book`.`genre` AS `book.genre`, `book`.`created_at` AS `book.created_at`, " +
+		"`lending`.`id` IS NOT NULL AS `is_lending` " +
+		"FROM `book` LEFT OUTER JOIN `lending` ON `book`.`id` = `lending`.`book_id` WHERE "
+	if genre != "" {
+		query += "genre = ? AND "
+		args = append(args, genre)
+	}
+	if title != "" {
+		query += "title LIKE ? AND "
+		args = append(args, "%"+title+"%")
+	}
+	if author != "" {
+		query += "author LIKE ? AND "
+		args = append(args, "%"+author+"%")
+	}
+	query = strings.TrimSuffix(query, "AND ")
 	query += "LIMIT ? OFFSET ?"
 	args = append(args, bookPageLimit, (page-1)*bookPageLimit)
 
-	var books []Book
+	var books []struct {
+		Book      Book `db:"book"`
+		IsLending bool `db:"is_lending"`
+	}
 	err = tx.SelectContext(c.Request().Context(), &books, query, args...)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -734,16 +753,8 @@ func getBooksHandler(c echo.Context) error {
 		Total: total,
 	}
 	for i, book := range books {
-		res.Books[i].Book = book
-
-		err = tx.GetContext(c.Request().Context(), &Lending{}, "SELECT * FROM `lending` WHERE `book_id` = ?", book.ID)
-		if err == nil {
-			res.Books[i].Lending = true
-		} else if errors.Is(err, sql.ErrNoRows) {
-			res.Books[i].Lending = false
-		} else {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
+		res.Books[i].Book = book.Book
+		res.Books[i].Lending = book.IsLending
 	}
 
 	_ = tx.Commit()
