@@ -27,6 +27,7 @@ import (
 	isucache "github.com/mazrean/isucon-go-tools/cache"
 	isudb "github.com/mazrean/isucon-go-tools/db"
 	isuhttp "github.com/mazrean/isucon-go-tools/http"
+	isulocker "github.com/mazrean/isucon-go-tools/locker"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -293,9 +294,9 @@ Members API
 */
 
 var (
-	memberCache     = isucache.NewAtomicMap[string, *Member]("member")
-	memberNameCache = isucache.NewSlice("member_name", make([]*Member, 0, 5000), 5000)
-	memberIDCache   = isucache.NewSlice("member_id", make([]*Member, 0, 5000), 5000)
+	memberCache     = isucache.NewAtomicMap[string, *isulocker.Value[Member]]("member")
+	memberNameCache = isucache.NewSlice("member_name", make([]*isulocker.Value[Member], 0, 5000), 5000)
+	memberIDCache   = isucache.NewSlice("member_id", make([]*isulocker.Value[Member], 0, 5000), 5000)
 )
 
 func initMemberCache() error {
@@ -304,16 +305,27 @@ func initMemberCache() error {
 	if err != nil {
 		return fmt.Errorf("failed to get members: %w", err)
 	}
-	memberIDCache.Append(members...)
 
+	memberValues := make([]*isulocker.Value[Member], 0, len(members))
 	for _, member := range members {
-		memberCache.Store(member.ID, member)
+		memberValues = append(memberValues, isulocker.NewValue(*member, "member"))
+	}
+	memberIDCache.Append(memberValues...)
+
+	for _, memberValue := range memberValues {
+		memberValue.Read(func(member *Member) {
+			memberCache.Store(member.ID, memberValue)
+		})
 	}
 
 	sort.SliceStable(members, func(i, j int) bool {
 		return members[i].Name < members[j].Name
 	})
-	memberNameCache.Append(members...)
+	memberValues = make([]*isulocker.Value[Member], 0, len(members))
+	for _, member := range members {
+		memberValues = append(memberValues, isulocker.NewValue(*member, "member"))
+	}
+	memberNameCache.Append(memberValues...)
 
 	return nil
 }
@@ -361,18 +373,30 @@ func postMemberHandler(c echo.Context) error {
 		Banned:      false,
 		CreatedAt:   time.Now(),
 	}
-	memberCache.Store(id, &res)
-	memberIDCache.Edit(func(members []*Member) []*Member {
-		members = append(members, &res)
+	memberCache.Store(id, isulocker.NewValue(res, "member"))
+	memberIDCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
+		members = append(members, isulocker.NewValue(res, "member"))
 		sort.SliceStable(members, func(i, j int) bool {
-			return members[i].ID < members[j].ID
+			var result bool
+			members[i].Read(func(memberI *Member) {
+				members[j].Read(func(memberJ *Member) {
+					result = memberI.ID < memberJ.ID
+				})
+			})
+			return result
 		})
 		return members
 	})
-	memberNameCache.Edit(func(members []*Member) []*Member {
-		members = append(members, &res)
+	memberNameCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
+		members = append(members, isulocker.NewValue(res, "member"))
 		sort.SliceStable(members, func(i, j int) bool {
-			return members[i].Name < members[j].Name
+			var result bool
+			members[i].Read(func(memberI *Member) {
+				members[j].Read(func(memberJ *Member) {
+					result = memberI.Name < memberJ.Name
+				})
+			})
+			return result
 		})
 		return members
 	})
@@ -415,19 +439,37 @@ func getMembersHandler(c echo.Context) error {
 	order := c.QueryParam("order")
 	switch order {
 	case "":
-		memberIDCache.Slice(start, end, func(s []*Member) {
-			members = s
+		memberIDCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
+			for _, v := range s {
+				var member Member
+				v.Read(func(m *Member) {
+					member = *m
+				})
+				members = append(members, &member)
+			}
 		})
 	case "name_asc":
-		memberNameCache.Slice(start, end, func(s []*Member) {
-			members = s
+		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
+			for _, v := range s {
+				var member Member
+				v.Read(func(m *Member) {
+					member = *m
+				})
+				members = append(members, &member)
+			}
 		})
 	case "name_desc":
 		var tmpMembers []*Member
 		start = memberNameCache.Len() - end
 		end = memberNameCache.Len() - start
-		memberNameCache.Slice(start, end, func(s []*Member) {
-			tmpMembers = s
+		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
+			for _, v := range s {
+				var member Member
+				v.Read(func(m *Member) {
+					member = *m
+				})
+				tmpMembers = append(tmpMembers, &member)
+			}
 		})
 
 		members = make([]*Member, len(tmpMembers))
@@ -530,15 +572,17 @@ func patchMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	if req.Name != "" {
-		member.Name = req.Name
-	}
-	if req.Address != "" {
-		member.Address = req.Address
-	}
-	if req.PhoneNumber != "" {
-		member.PhoneNumber = req.PhoneNumber
-	}
+	member.Write(func(member *Member) {
+		if req.Name != "" {
+			member.Name = req.Name
+		}
+		if req.Address != "" {
+			member.Address = req.Address
+		}
+		if req.PhoneNumber != "" {
+			member.PhoneNumber = req.PhoneNumber
+		}
+	})
 
 	_ = tx.Commit()
 
@@ -576,24 +620,30 @@ func banMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	member.Banned = true
+	member.Write(func(member *Member) {
+		member.Banned = true
+	})
 	memberCache.Forget(id)
-	memberNameCache.Edit(func(members []*Member) []*Member {
-		newMembers := make([]*Member, 0, len(members)-1)
+	memberNameCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
+		newMembers := make([]*isulocker.Value[Member], 0, len(members)-1)
 		for _, member := range members {
-			if member.ID != id {
-				newMembers = append(newMembers, member)
-			}
+			member.Read(func(m *Member) {
+				if m.ID != id {
+					newMembers = append(newMembers, member)
+				}
+			})
 		}
 
 		return newMembers
 	})
-	memberIDCache.Edit(func(members []*Member) []*Member {
-		newMembers := make([]*Member, 0, len(members)-1)
+	memberIDCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
+		newMembers := make([]*isulocker.Value[Member], 0, len(members)-1)
 		for _, member := range members {
-			if member.ID != id {
-				newMembers = append(newMembers, member)
-			}
+			member.Read(func(m *Member) {
+				if m.ID != id {
+					newMembers = append(newMembers, member)
+				}
+			})
 		}
 
 		return newMembers
@@ -982,7 +1032,9 @@ func postLendingsHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
-		res[i].MemberName = member.Name
+		member.Read(func(member *Member) {
+			res[i].MemberName = member.Name
+		})
 		res[i].BookTitle = book.Title
 	}
 
@@ -1028,16 +1080,19 @@ func getLendingsHandler(c echo.Context) error {
 	for i, lending := range lendings {
 		res[i].Lending = lending
 
-		member, ok := memberCache.Load(lending.MemberID)
+		memberValue, ok := memberCache.Load(lending.MemberID)
 		if !ok {
-			newMember := Member{}
-			err = tx.GetContext(c.Request().Context(), &newMember, "SELECT * FROM `member` WHERE `id` = ?", lending.MemberID)
+			member := Member{}
+			err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", lending.MemberID)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
-			member = &newMember
+			res[i].MemberName = member.Name
+		} else {
+			memberValue.Read(func(member *Member) {
+				res[i].MemberName = member.Name
+			})
 		}
-		res[i].MemberName = member.Name
 
 		var book Book
 		err = tx.GetContext(c.Request().Context(), &book, "SELECT * FROM `book` WHERE `id` = ?", lending.BookID)
