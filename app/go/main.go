@@ -518,9 +518,11 @@ func getMemberHandler(c echo.Context) error {
 	}
 
 	member, ok := memberCache.Load(id)
-	member.Read(func(m *Member) {
-		ok = ok && !m.Banned
-	})
+	if ok {
+		member.Read(func(m *Member) {
+			ok = ok && !m.Banned
+		})
+	}
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
@@ -564,9 +566,11 @@ func patchMemberHandler(c echo.Context) error {
 
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
-	member.Read(func(m *Member) {
-		ok = ok && !m.Banned
-	})
+	if ok {
+		member.Read(func(m *Member) {
+			ok = ok && !m.Banned
+		})
+	}
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
@@ -628,9 +632,11 @@ func banMemberHandler(c echo.Context) error {
 
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
-	member.Read(func(m *Member) {
-		ok = ok && !m.Banned
-	})
+	if ok {
+		member.Read(func(m *Member) {
+			ok = ok && !m.Banned
+		})
+	}
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
@@ -688,9 +694,11 @@ func getMemberQRCodeHandler(c echo.Context) error {
 
 	// 会員の存在確認
 	member, ok := memberCache.Load(id)
-	member.Read(func(m *Member) {
-		ok = ok && !m.Banned
-	})
+	if ok {
+		member.Read(func(m *Member) {
+			ok = ok && !m.Banned
+		})
+	}
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
