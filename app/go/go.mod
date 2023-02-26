@@ -6,7 +6,7 @@ require (
 	github.com/go-sql-driver/mysql v1.7.0
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/labstack/echo/v4 v4.10.2
-	github.com/mazrean/isucon-go-tools v1.10.1
+	github.com/mazrean/isucon-go-tools v1.10.3
 	github.com/oklog/ulid/v2 v2.1.0
 )
 
@@ -16,10 +16,10 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/felixge/fgprof v0.9.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
-	github.com/gin-gonic/gin v1.8.2 // indirect
-	github.com/go-playground/locales v0.14.0 // indirect
-	github.com/go-playground/universal-translator v0.18.0 // indirect
-	github.com/go-playground/validator/v10 v10.11.1 // indirect
+	github.com/gin-gonic/gin v1.9.0 // indirect
+	github.com/go-playground/locales v0.14.1 // indirect
+	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/go-playground/validator/v10 v10.11.2 // indirect
 	github.com/goccy/go-json v0.10.0 // indirect
 	github.com/gofiber/fiber/v2 v2.42.0 // indirect
 	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
@@ -47,7 +47,7 @@ require (
 	github.com/savsgio/dictpool v0.0.0-20221023140959-7bf2e61cea94 // indirect
 	github.com/savsgio/gotils v0.0.0-20220530130905-52f3993e8d6d // indirect
 	github.com/tinylib/msgp v1.1.6 // indirect
-	github.com/ugorji/go/codec v1.2.7 // indirect
+	github.com/ugorji/go/codec v1.2.9 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.44.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect

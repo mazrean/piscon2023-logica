@@ -58,7 +58,6 @@ func main() {
 	}
 
 	e := isuhttp.EchoSetting(echo.New())
-	e.Debug = true
 	e.Use(middleware.Logger())
 
 	api := e.Group("/api")
@@ -450,6 +449,7 @@ func getMembersHandler(c echo.Context) error {
 	order := c.QueryParam("order")
 	switch order {
 	case "":
+		members = make([]*Member, 0, memberPageLimit)
 		memberIDCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
 			for _, v := range s {
 				var member Member
@@ -460,6 +460,7 @@ func getMembersHandler(c echo.Context) error {
 			}
 		})
 	case "name_asc":
+		members = make([]*Member, 0, memberPageLimit)
 		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
 			for _, v := range s {
 				var member Member
@@ -470,23 +471,18 @@ func getMembersHandler(c echo.Context) error {
 			}
 		})
 	case "name_desc":
-		var tmpMembers []*Member
 		start = memberNameCache.Len() - end
 		end = memberNameCache.Len() - start
+		members = make([]*Member, memberPageLimit)
 		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
-			for _, v := range s {
+			for i, v := range s {
 				var member Member
 				v.Read(func(m *Member) {
 					member = *m
 				})
-				tmpMembers = append(tmpMembers, &member)
+				members[len(s)-1-i] = &member
 			}
 		})
-
-		members = make([]*Member, len(tmpMembers))
-		for i, v := range tmpMembers {
-			members[len(tmpMembers)-1-i] = v
-		}
 	default:
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid order")
 	}
