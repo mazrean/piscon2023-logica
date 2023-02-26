@@ -220,12 +220,7 @@ var (
 )
 
 func initQRCode() error {
-	err := os.RemoveAll(qrCodeDirName)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(qrCodeDirName, 0755)
+	err := os.MkdirAll(qrCodeDirName, 0755)
 	if err != nil {
 		return err
 	}
