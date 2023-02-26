@@ -1030,7 +1030,10 @@ func getLendingsHandler(c echo.Context) error {
 
 		member, ok := memberCache.Load(lending.MemberID)
 		if !ok {
-			return echo.NewHTTPError(http.StatusInternalServerError, "member not found")
+			err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", lending.MemberID)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+			}
 		}
 		res[i].MemberName = member.Name
 
