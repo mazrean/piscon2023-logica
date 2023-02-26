@@ -325,6 +325,7 @@ func initMemberCache() error {
 	sort.SliceStable(members, func(i, j int) bool {
 		return members[i].Name < members[j].Name
 	})
+	memberValues = make([]*isulocker.Value[Member], 0, len(members))
 	for _, member := range members {
 		if !member.Banned {
 			memberValue, ok := memberCache.Load(member.ID)
