@@ -301,29 +301,40 @@ var (
 
 func initMemberCache() error {
 	var members []*Member
-	err := db.Select(&members, "SELECT * FROM `member` WHERE `banned` = false ORDER BY `id` ASC")
+	err := db.Select(&members, "SELECT * FROM `member` ORDER BY `id` ASC")
 	if err != nil {
 		return fmt.Errorf("failed to get members: %w", err)
 	}
 
+	for _, member := range members {
+		memberCache.Store(member.ID, isulocker.NewValue(*member, "member"))
+	}
+
 	memberValues := make([]*isulocker.Value[Member], 0, len(members))
 	for _, member := range members {
-		memberValues = append(memberValues, isulocker.NewValue(*member, "member"))
+		if !member.Banned {
+			memberValue, ok := memberCache.Load(member.ID)
+			if !ok {
+				log.Printf("member not found in cache: %s\n", member.ID)
+				continue
+			}
+			memberValues = append(memberValues, memberValue)
+		}
 	}
 	memberIDCache.Append(memberValues...)
-
-	for _, memberValue := range memberValues {
-		memberValue.Read(func(member *Member) {
-			memberCache.Store(member.ID, memberValue)
-		})
-	}
 
 	sort.SliceStable(members, func(i, j int) bool {
 		return members[i].Name < members[j].Name
 	})
-	memberValues = make([]*isulocker.Value[Member], 0, len(members))
 	for _, member := range members {
-		memberValues = append(memberValues, isulocker.NewValue(*member, "member"))
+		if !member.Banned {
+			memberValue, ok := memberCache.Load(member.ID)
+			if !ok {
+				log.Printf("member not found in cache: %s\n", member.ID)
+				continue
+			}
+			memberValues = append(memberValues, memberValue)
+		}
 	}
 	memberNameCache.Append(memberValues...)
 
@@ -507,6 +518,9 @@ func getMemberHandler(c echo.Context) error {
 	}
 
 	member, ok := memberCache.Load(id)
+	member.Read(func(m *Member) {
+		ok = ok && !m.Banned
+	})
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
@@ -550,6 +564,9 @@ func patchMemberHandler(c echo.Context) error {
 
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
+	member.Read(func(m *Member) {
+		ok = ok && !m.Banned
+	})
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
@@ -611,6 +628,9 @@ func banMemberHandler(c echo.Context) error {
 
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
+	member.Read(func(m *Member) {
+		ok = ok && !m.Banned
+	})
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
@@ -667,7 +687,10 @@ func getMemberQRCodeHandler(c echo.Context) error {
 	}
 
 	// 会員の存在確認
-	_, ok := memberCache.Load(id)
+	member, ok := memberCache.Load(id)
+	member.Read(func(m *Member) {
+		ok = ok && !m.Banned
+	})
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
