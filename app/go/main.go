@@ -235,6 +235,7 @@ func generateQRCode(id string, w io.Writer) error {
 		sw := standard.NewWithWriter(
 			pw,
 			standard.WithQRWidth(1),
+			standard.WithBorderWidth(0),
 			standard.WithBuiltinImageEncoder(standard.PNG_FORMAT),
 		)
 		err := qrc.Save(sw)
