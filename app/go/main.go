@@ -98,6 +98,11 @@ func main() {
 		panic(err)
 	}
 
+	err = initQRCode()
+	if err != nil {
+		panic(err)
+	}
+
 	e.Logger.Fatal(e.Start(":8080"))
 }
 
@@ -337,6 +342,11 @@ func initializeHandler(c echo.Context) error {
 	}
 
 	err = initMemberCache()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	err = initQRCode()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
