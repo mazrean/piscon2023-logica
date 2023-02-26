@@ -474,16 +474,21 @@ func getMembersHandler(c echo.Context) error {
 		})
 	case "name_desc":
 		start, end = memberNameCache.Len()-end, memberNameCache.Len()-start
-		members = make([]*Member, memberPageLimit)
+		tmpMembers := make([]*Member, 0, memberPageLimit)
 		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
-			for i, v := range s {
+			for _, v := range s {
 				var member Member
 				v.Read(func(m *Member) {
 					member = *m
 				})
-				members[len(s)-1-i] = &member
+				tmpMembers = append(tmpMembers, &member)
 			}
 		})
+
+		members = make([]*Member, len(tmpMembers))
+		for i, v := range tmpMembers {
+			members[len(tmpMembers)-1-i] = v
+		}
 	default:
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid order")
 	}
