@@ -231,6 +231,11 @@ func initQRCode() error {
 	}
 
 	var ids []string
+	err = db.Select(&ids, "SELECT id FROM book UNION SELECT id FROM member")
+	if err != nil {
+		return err
+	}
+
 	for i := 0; i < 500; i++ {
 		id := generateID()
 		idPool.Write(func(s *[]string) {
@@ -245,25 +250,6 @@ func initQRCode() error {
 	}
 
 	eg := errgroup.Group{}
-	for _, id := range ids {
-		eg.Go(func() error {
-			f, err := os.Create(filepath.Join(qrCodeDirName, id+".png"))
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-
-			err = generateQRCode(id, f)
-			if err != nil {
-				return err
-			}
-
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
 	for _, file := range dir {
 		file := file
 		eg.Go(func() error {
@@ -286,6 +272,39 @@ func initQRCode() error {
 
 			return nil
 		})
+	}
+	err = eg.Wait()
+	if err != nil {
+		return err
+	}
+
+	eg = errgroup.Group{}
+	for _, id := range ids {
+		eg.Go(func() error {
+			_, err := os.Stat(filepath.Join(qrCodeDirName, id+".png"))
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+
+			f, err := os.Create(filepath.Join(qrCodeDirName, id+".png"))
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			err = generateQRCode(id, f)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return eg.Wait()
