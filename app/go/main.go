@@ -29,6 +29,9 @@ import (
 	isuhttp "github.com/mazrean/isucon-go-tools/http"
 	isulocker "github.com/mazrean/isucon-go-tools/locker"
 	"github.com/oklog/ulid/v2"
+	"github.com/yeqown/go-qrcode/v2"
+	"github.com/yeqown/go-qrcode/writer/standard"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -203,10 +206,10 @@ func decrypt(cipherText string) (string, error) {
 const qrCodeFileName = "../images/qr.png"
 
 // QRコードを生成
-func generateQRCode(id string) ([]byte, error) {
+func generateQRCode(id string, w io.Writer) error {
 	encryptedID, err := encrypt(id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	/*
@@ -216,20 +219,46 @@ func generateQRCode(id string) ([]byte, error) {
 		 - バージョン5 (37x37ピクセル、マージン含め45x45ピクセル)
 		 - エラー訂正レベルM (15%)
 	*/
-	err = exec.
-		Command("sh", "-c", fmt.Sprintf("echo \"%s\" | qrencode -o %s -t PNG -s 1 -v 6 --strict-version -l M", encryptedID, qrCodeFileName)).
-		Run()
+	qrc, err := qrcode.NewWith(
+		encryptedID,
+		qrcode.WithVersion(6),
+		qrcode.WithErrorCorrectionLevel(qrcode.ErrorCorrectionMedium),
+	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	file, err := os.Open(qrCodeFileName)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+	pr, pw := io.Pipe()
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		defer pw.Close()
+		sw := standard.NewWithWriter(
+			pw,
+			standard.PNG_FORMAT,
+			standard.WithQRWidth(1),
+			standard.WithBorderWidth(8),
+		)
+		err := qrc.Save(sw)
+		if err != nil {
+			return err
+		}
 
-	return io.ReadAll(file)
+		return nil
+	})
+
+	eg.Go(func() error {
+		defer pr.Close()
+
+		_, err := io.Copy(w, pr)
+		return err
+	})
+
+	err = eg.Wait()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 /*
@@ -705,15 +734,23 @@ func getMemberQRCodeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
-	qrFileLock.Lock()
-	defer qrFileLock.Unlock()
+	pr, pw := io.Pipe()
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		defer pw.Close()
+		return generateQRCode(id, pw)
+	})
+	eg.Go(func() error {
+		defer pr.Close()
+		return c.Stream(http.StatusOK, "image/png", pr)
+	})
 
-	qrCode, err := generateQRCode(id)
+	err := eg.Wait()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	return c.Blob(http.StatusOK, "image/png", qrCode)
+	return nil
 }
 
 /*
@@ -972,15 +1009,23 @@ func getBookQRCodeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	qrFileLock.Lock()
-	defer qrFileLock.Unlock()
+	pr, pw := io.Pipe()
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		defer pw.Close()
+		return generateQRCode(id, pw)
+	})
+	eg.Go(func() error {
+		defer pr.Close()
+		return c.Stream(http.StatusOK, "image/png", pr)
+	})
 
-	qrCode, err := generateQRCode(id)
+	err = eg.Wait()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	return c.Blob(http.StatusOK, "image/png", qrCode)
+	return nil
 }
 
 /*
