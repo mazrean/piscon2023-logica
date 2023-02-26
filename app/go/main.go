@@ -793,11 +793,12 @@ func getMemberQRCodeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
-	f, err := os.Open(fmt.Sprintf("%s/%s.png", qrCodeDirName, id))
+	f, err := os.Open(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
 	if err == nil {
 		defer f.Close()
 		return c.Stream(http.StatusOK, "image/png", f)
 	}
+	log.Printf("failed to open qr code file: %s\n", err)
 
 	pr, pw := io.Pipe()
 	eg := errgroup.Group{}
@@ -1072,11 +1073,12 @@ func getBookQRCodeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	f, err := os.Open(fmt.Sprintf("%s/%s.png", qrCodeDirName, id))
+	f, err := os.Open(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
 	if err == nil {
 		defer f.Close()
 		return c.Stream(http.StatusOK, "image/png", f)
 	}
+	log.Printf("failed to open qr code file: %s\n", err)
 
 	pr, pw := io.Pipe()
 	eg := errgroup.Group{}
