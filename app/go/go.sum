@@ -228,6 +228,8 @@ github.com/mazrean/isucon-go-tools v1.10.2 h1:qnMQNNFdVUvD56z5wFN8SjOpk0iD37Pzxq
 github.com/mazrean/isucon-go-tools v1.10.2/go.mod h1:duBjvnTyvjqkMeLbLnqCSjYByqbNPaxbXWc84Bf91KQ=
 github.com/mazrean/isucon-go-tools v1.10.3 h1:Qx/23z4AFP82BC+N7ON29XLJN+p2/vf/FhuslS7yxfI=
 github.com/mazrean/isucon-go-tools v1.10.3/go.mod h1:duBjvnTyvjqkMeLbLnqCSjYByqbNPaxbXWc84Bf91KQ=
+github.com/mazrean/isucon-go-tools v1.10.4 h1:++ChI/MKv0oTG4mNU2DAR0RkWxi4OoAT0GwnRzmj6XY=
+github.com/mazrean/isucon-go-tools v1.10.4/go.mod h1:duBjvnTyvjqkMeLbLnqCSjYByqbNPaxbXWc84Bf91KQ=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
