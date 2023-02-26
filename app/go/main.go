@@ -471,8 +471,7 @@ func getMembersHandler(c echo.Context) error {
 			}
 		})
 	case "name_desc":
-		start = memberNameCache.Len() - end
-		end = memberNameCache.Len() - start
+		start, end = memberNameCache.Len()-end, memberNameCache.Len()-start
 		members = make([]*Member, memberPageLimit)
 		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
 			for i, v := range s {
