@@ -207,6 +207,10 @@ github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0j
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/mazrean/isucon-go-tools v1.8.2 h1:Kwk4XB7zg0fL6xZhdH2UmJIrduitg2LcHC6z0jz41FU=
 github.com/mazrean/isucon-go-tools v1.8.2/go.mod h1:qxue4pfrrr7yPRiycUITpktnc/RLdumDJsO5YDKhn/I=
+github.com/mazrean/isucon-go-tools v1.8.3 h1:WFhSdiuWxfV2CjpbSav8Jn85IV82xVJA/OJZI5uzoQA=
+github.com/mazrean/isucon-go-tools v1.8.3/go.mod h1:qxue4pfrrr7yPRiycUITpktnc/RLdumDJsO5YDKhn/I=
+github.com/mazrean/isucon-go-tools v1.9.1 h1:1jDzWSyE6PD9jx8FaBAY3sCulkqwoIAGsCeYvXg05V0=
+github.com/mazrean/isucon-go-tools v1.9.1/go.mod h1:qxue4pfrrr7yPRiycUITpktnc/RLdumDJsO5YDKhn/I=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

@@ -13,10 +13,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -90,7 +90,7 @@ func main() {
 		}
 	}
 
-	err = initMemberCount()
+	err = initMemberCache()
 	if err != nil {
 		panic(err)
 	}
@@ -276,7 +276,7 @@ func initializeHandler(c echo.Context) error {
 		log.Panic(err.Error())
 	}
 
-	err = initMemberCount()
+	err = initMemberCache()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -292,18 +292,28 @@ Members API
 ---------------------------------------------------------------
 */
 
-var memberCount = atomic.Int64{}
+var (
+	memberCache     = isucache.NewAtomicMap[string, *Member]("member")
+	memberNameCache = isucache.NewSlice("member_name", make([]*Member, 0, 5000), 5000)
+	memberIDCache   = isucache.NewSlice("member_id", make([]*Member, 0, 5000), 5000)
+)
 
-func initMemberCount() error {
-	var count struct {
-		Count int64 `db:"count"`
-	}
-	err := db.Get(&count, "SELECT COUNT(*) AS count FROM `member`")
+func initMemberCache() error {
+	var members []*Member
+	err := db.Select(&members, "SELECT * FROM `member` WHERE `banned` = false ORDER BY `id` ASC")
 	if err != nil {
-		return fmt.Errorf("failed to get member count:%w", err)
+		return fmt.Errorf("failed to get members: %w", err)
+	}
+	memberIDCache.Append(members...)
+
+	for _, member := range members {
+		memberCache.Store(member.ID, member)
 	}
 
-	memberCount.Store(count.Count)
+	sort.SliceStable(members, func(i, j int) bool {
+		return members[i].Name < members[j].Name
+	})
+	memberNameCache.Append(members...)
 
 	return nil
 }
@@ -341,14 +351,31 @@ func postMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	var res Member
-	err = tx.GetContext(c.Request().Context(), &res, "SELECT * FROM `member` WHERE `id` = ?", id)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
 	_ = tx.Commit()
-	memberCount.Add(1)
+
+	res := Member{
+		ID:          id,
+		Name:        req.Name,
+		Address:     req.Address,
+		PhoneNumber: req.PhoneNumber,
+		Banned:      false,
+		CreatedAt:   time.Now(),
+	}
+	memberCache.Store(id, &res)
+	memberIDCache.Edit(func(members []*Member) []*Member {
+		members = append(members, &res)
+		sort.SliceStable(members, func(i, j int) bool {
+			return members[i].ID < members[j].ID
+		})
+		return members
+	})
+	memberNameCache.Edit(func(members []*Member) []*Member {
+		members = append(members, &res)
+		sort.SliceStable(members, func(i, j int) bool {
+			return members[i].Name < members[j].Name
+		})
+		return members
+	})
 
 	return c.JSON(http.StatusCreated, res)
 }
@@ -356,8 +383,8 @@ func postMemberHandler(c echo.Context) error {
 const memberPageLimit = 100
 
 type GetMembersResponse struct {
-	Members []Member `json:"members"`
-	Total   int      `json:"total"`
+	Members []*Member `json:"members"`
+	Total   int       `json:"total"`
 }
 
 // 会員一覧を取得 (ページネーションあり)
@@ -371,46 +398,47 @@ func getMembersHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	start := (page - 1) * memberPageLimit
+	end := start + memberPageLimit
+	if (page-1)*memberPageLimit >= memberIDCache.Len() {
+		return echo.NewHTTPError(http.StatusNotFound, "no members to show in this page")
+	}
+	if end > memberIDCache.Len() {
+		end = memberIDCache.Len()
+	}
+
 	// 前ページの最後の会員ID
 	// シーク法をフロントエンドでは実装したが、バックエンドは力尽きた
 	_ = c.QueryParam("last_member_id")
 
+	var members []*Member
 	order := c.QueryParam("order")
-	if order != "" && order != "name_asc" && order != "name_desc" {
+	switch order {
+	case "":
+		memberIDCache.Slice(start, end, func(s []*Member) {
+			members = s
+		})
+	case "name_asc":
+		memberNameCache.Slice(start, end, func(s []*Member) {
+			members = s
+		})
+	case "name_desc":
+		var tmpMembers []*Member
+		start = memberNameCache.Len() - end
+		end = memberNameCache.Len() - start
+		memberNameCache.Slice(start, end, func(s []*Member) {
+			tmpMembers = s
+		})
+
+		members = make([]*Member, len(tmpMembers))
+		for i, v := range tmpMembers {
+			members[len(tmpMembers)-1-i] = v
+		}
+	default:
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid order")
 	}
 
-	tx, err := db.BeginTxx(c.Request().Context(), &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	query := "SELECT * FROM `member` WHERE `banned` = false "
-	switch order {
-	case "":
-		query += "ORDER BY `id` ASC "
-	case "name_asc":
-		query += "ORDER BY `name` ASC "
-	case "name_desc":
-		query += " ORDER BY `name` DESC "
-	}
-	query += "LIMIT ? OFFSET ?"
-
-	members := []Member{}
-	err = tx.SelectContext(c.Request().Context(), &members, query, memberPageLimit, (page-1)*memberPageLimit)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if len(members) == 0 {
-		return echo.NewHTTPError(http.StatusNotFound, "no members to show in this page")
-	}
-
-	total := int(memberCount.Load())
-
-	_ = tx.Commit()
+	total := int(memberIDCache.Len())
 
 	return c.JSON(http.StatusOK, GetMembersResponse{
 		Members: members,
@@ -436,14 +464,9 @@ func getMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "encrypted must be boolean value")
 	}
 
-	member := Member{}
-	err := db.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	member, ok := memberCache.Load(id)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
 	return c.JSON(http.StatusOK, member)
@@ -479,13 +502,9 @@ func patchMemberHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在を確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	member, ok := memberCache.Load(id)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
 	query := "UPDATE `member` SET "
@@ -511,6 +530,16 @@ func patchMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	if req.Name != "" {
+		member.Name = req.Name
+	}
+	if req.Address != "" {
+		member.Address = req.Address
+	}
+	if req.PhoneNumber != "" {
+		member.PhoneNumber = req.PhoneNumber
+	}
+
 	_ = tx.Commit()
 
 	return c.NoContent(http.StatusNoContent)
@@ -532,13 +561,9 @@ func banMemberHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在を確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	member, ok := memberCache.Load(id)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
 	_, err = tx.ExecContext(c.Request().Context(), "UPDATE `member` SET `banned` = true WHERE `id` = ?", id)
@@ -550,6 +575,29 @@ func banMemberHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+
+	member.Banned = true
+	memberCache.Forget(id)
+	memberNameCache.Edit(func(members []*Member) []*Member {
+		newMembers := make([]*Member, 0, len(members)-1)
+		for _, member := range members {
+			if member.ID != id {
+				newMembers = append(newMembers, member)
+			}
+		}
+
+		return newMembers
+	})
+	memberIDCache.Edit(func(members []*Member) []*Member {
+		newMembers := make([]*Member, 0, len(members)-1)
+		for _, member := range members {
+			if member.ID != id {
+				newMembers = append(newMembers, member)
+			}
+		}
+
+		return newMembers
+	})
 
 	_ = tx.Commit()
 
@@ -564,13 +612,9 @@ func getMemberQRCodeHandler(c echo.Context) error {
 	}
 
 	// 会員の存在確認
-	err := db.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	_, ok := memberCache.Load(id)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
 	qrFileLock.Lock()
@@ -893,14 +937,9 @@ func postLendingsHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在確認
-	var member Member
-	err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", req.MemberID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	member, ok := memberCache.Load(req.MemberID)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
 	lendingTime := time.Now()
@@ -989,10 +1028,9 @@ func getLendingsHandler(c echo.Context) error {
 	for i, lending := range lendings {
 		res[i].Lending = lending
 
-		var member Member
-		err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", lending.MemberID)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		member, ok := memberCache.Load(lending.MemberID)
+		if ok {
+			return echo.NewHTTPError(http.StatusInternalServerError, "member not found")
 		}
 		res[i].MemberName = member.Name
 
@@ -1036,13 +1074,9 @@ func returnLendingsHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ?", req.MemberID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	_, ok := memberCache.Load(req.MemberID)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
 	for _, bookID := range req.BookIDs {
