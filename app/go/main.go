@@ -300,7 +300,7 @@ var (
 
 func initMemberCache() error {
 	var members []*Member
-	err := db.Select(&members, "SELECT * FROM `member` WHERE `banned` = false ORDER BY `id` ASC")
+	err := db.Select(&members, "SELECT * FROM `member` ORDER BY `id` ASC")
 	if err != nil {
 		return fmt.Errorf("failed to get members: %w", err)
 	}
@@ -399,12 +399,8 @@ func getMembersHandler(c echo.Context) error {
 	}
 
 	start := (page - 1) * memberPageLimit
-	end := start + memberPageLimit
 	if (page-1)*memberPageLimit >= memberIDCache.Len() {
 		return echo.NewHTTPError(http.StatusNotFound, "no members to show in this page")
-	}
-	if end > memberIDCache.Len() {
-		end = memberIDCache.Len()
 	}
 
 	// 前ページの最後の会員ID
@@ -413,21 +409,66 @@ func getMembersHandler(c echo.Context) error {
 
 	var members []*Member
 	order := c.QueryParam("order")
+	count := 0
 	switch order {
 	case "":
-		memberIDCache.Slice(start, end, func(s []*Member) {
-			members = s
+		members = make([]*Member, 0, memberPageLimit)
+		memberIDCache.Range(func(_ int, member *Member) bool {
+			count++
+			if member.Banned {
+				return true
+			}
+
+			if count > start {
+				members = append(members, member)
+				if len(members) >= memberPageLimit {
+					return false
+				}
+			}
+
+			return true
 		})
 	case "name_asc":
-		memberNameCache.Slice(start, end, func(s []*Member) {
-			members = s
+		members = make([]*Member, 0, memberPageLimit)
+		memberNameCache.Range(func(_ int, member *Member) bool {
+			if member.Banned {
+				return true
+			}
+
+			if count > start {
+				members = append(members, member)
+				if len(members) >= memberPageLimit {
+					return false
+				}
+			}
+
+			count++
+
+			return true
 		})
 	case "name_desc":
+		end := start + memberPageLimit
+		if end > memberIDCache.Len() {
+			end = memberIDCache.Len()
+		}
+		start := memberNameCache.Len() - end
+
 		var tmpMembers []*Member
-		start = memberNameCache.Len() - end
-		end = memberNameCache.Len() - start
-		memberNameCache.Slice(start, end, func(s []*Member) {
-			tmpMembers = s
+		memberNameCache.Range(func(_ int, member *Member) bool {
+			if member.Banned {
+				return true
+			}
+
+			if count > start {
+				tmpMembers = append(tmpMembers, member)
+				if len(tmpMembers) >= memberPageLimit {
+					return false
+				}
+			}
+
+			count++
+
+			return true
 		})
 
 		members = make([]*Member, len(tmpMembers))
@@ -438,11 +479,9 @@ func getMembersHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid order")
 	}
 
-	total := int(memberIDCache.Len())
-
 	return c.JSON(http.StatusOK, GetMembersResponse{
 		Members: members,
-		Total:   total,
+		Total:   count,
 	})
 }
 
@@ -465,7 +504,7 @@ func getMemberHandler(c echo.Context) error {
 	}
 
 	member, ok := memberCache.Load(id)
-	if !ok {
+	if !ok || member.Banned {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
@@ -503,7 +542,7 @@ func patchMemberHandler(c echo.Context) error {
 
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
-	if !ok {
+	if !ok || member.Banned {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
@@ -562,7 +601,7 @@ func banMemberHandler(c echo.Context) error {
 
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
-	if !ok {
+	if !ok || member.Banned {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
@@ -577,27 +616,6 @@ func banMemberHandler(c echo.Context) error {
 	}
 
 	member.Banned = true
-	memberCache.Forget(id)
-	memberNameCache.Edit(func(members []*Member) []*Member {
-		newMembers := make([]*Member, 0, len(members)-1)
-		for _, member := range members {
-			if member.ID != id {
-				newMembers = append(newMembers, member)
-			}
-		}
-
-		return newMembers
-	})
-	memberIDCache.Edit(func(members []*Member) []*Member {
-		newMembers := make([]*Member, 0, len(members)-1)
-		for _, member := range members {
-			if member.ID != id {
-				newMembers = append(newMembers, member)
-			}
-		}
-
-		return newMembers
-	})
 
 	_ = tx.Commit()
 
@@ -612,8 +630,8 @@ func getMemberQRCodeHandler(c echo.Context) error {
 	}
 
 	// 会員の存在確認
-	_, ok := memberCache.Load(id)
-	if !ok {
+	member, ok := memberCache.Load(id)
+	if !ok || member.Banned {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
