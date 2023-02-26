@@ -16,7 +16,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -28,6 +27,7 @@ import (
 	isudb "github.com/mazrean/isucon-go-tools/db"
 	isuhttp "github.com/mazrean/isucon-go-tools/http"
 	isulocker "github.com/mazrean/isucon-go-tools/locker"
+	"github.com/mazrean/isucon-go-tools/query"
 	"github.com/oklog/ulid/v2"
 	"github.com/yeqown/go-qrcode/v2"
 	"github.com/yeqown/go-qrcode/writer/standard"
@@ -175,8 +175,7 @@ func getEnvOrDefault(key string, defaultValue string) string {
 }
 
 var (
-	block      cipher.Block
-	qrFileLock sync.Mutex
+	block cipher.Block
 )
 
 // AES + CTRモード + base64エンコードでテキストを暗号化
@@ -203,10 +202,61 @@ func decrypt(cipherText string) (string, error) {
 	return string(decryptedText), nil
 }
 
-const qrCodeFileName = "../images/qr.png"
+const qrCodeDirName = "../images/qr"
+
+var (
+	idPool = isulocker.NewValue([]string{}, "id_pool")
+)
+
+func initQRCode() error {
+	err := os.RemoveAll(qrCodeDirName)
+	if err != nil {
+		return err
+	}
+
+	err = os.MkdirAll(qrCodeDirName, 0755)
+	if err != nil {
+		return err
+	}
+
+	var ids []string
+	err = db.Select(&ids, "SELECT id FROM member UNION SELECT id FROM book")
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < 50; i++ {
+		id := generateID()
+		idPool.Write(func(s *[]string) {
+			*s = append(*s, id)
+		})
+		ids = append(ids, id)
+	}
+
+	eg := errgroup.Group{}
+	for _, id := range ids {
+		id := id
+		eg.Go(func() error {
+			file, err := os.Create(fmt.Sprintf("%s/%s.png", qrCodeDirName, id))
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			err = generateQRCode(id, file)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	}
+
+	return eg.Wait()
+}
 
 // QRコードを生成
-func generateQRCode(id string, w io.Writer) error {
+func generateQRCode(id string, w io.WriteCloser) error {
 	encryptedID, err := encrypt(id)
 	if err != nil {
 		return err
@@ -228,32 +278,13 @@ func generateQRCode(id string, w io.Writer) error {
 		return err
 	}
 
-	pr, pw := io.Pipe()
-	eg := errgroup.Group{}
-	eg.Go(func() error {
-		defer pw.Close()
-		sw := standard.NewWithWriter(
-			pw,
-			standard.WithQRWidth(1),
-			standard.WithBorderWidth(4),
-			standard.WithBuiltinImageEncoder(standard.PNG_FORMAT),
-		)
-		err := qrc.Save(sw)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-
-	eg.Go(func() error {
-		defer pr.Close()
-
-		_, err := io.Copy(w, pr)
-		return err
-	})
-
-	err = eg.Wait()
+	sw := standard.NewWithWriter(
+		w,
+		standard.WithQRWidth(1),
+		standard.WithBorderWidth(4),
+		standard.WithBuiltinImageEncoder(standard.PNG_FORMAT),
+	)
+	err = qrc.Save(sw)
 	if err != nil {
 		return err
 	}
@@ -386,7 +417,15 @@ func postMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "name, address, phoneNumber are required")
 	}
 
-	id := generateID()
+	var id string
+	idPool.Write(func(idPool *[]string) {
+		if len(*idPool) != 0 {
+			id = (*idPool)[0]
+			*idPool = (*idPool)[1:]
+		} else {
+			id = generateID()
+		}
+	})
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
@@ -734,6 +773,12 @@ func getMemberQRCodeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
+	f, err := os.Open(fmt.Sprintf("%s/%s.png", qrCodeDirName, id))
+	if err == nil {
+		defer f.Close()
+		return c.Stream(http.StatusOK, "image/png", f)
+	}
+
 	pr, pw := io.Pipe()
 	eg := errgroup.Group{}
 	eg.Go(func() error {
@@ -745,7 +790,7 @@ func getMemberQRCodeHandler(c echo.Context) error {
 		return c.Stream(http.StatusOK, "image/png", pr)
 	})
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -775,14 +820,7 @@ func postBooksHandler(c echo.Context) error {
 	res := []Book{}
 	createdAt := time.Now()
 
-	tx, err := db.BeginTxx(c.Request().Context(), nil)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
+	bi := query.NewBulkInsert("book", "`id`, `title`, `author`, `genre`, `created_at`", "(?, ?, ?, ?, ?)")
 	for _, req := range reqSlice {
 		if req.Title == "" || req.Author == "" {
 			return echo.NewHTTPError(http.StatusBadRequest, "title, author is required")
@@ -791,25 +829,30 @@ func postBooksHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "genre is invalid")
 		}
 
-		id := generateID()
+		var id string
+		idPool.Write(func(idPool *[]string) {
+			if len(*idPool) != 0 {
+				id = (*idPool)[0]
+				*idPool = (*idPool)[1:]
+			} else {
+				id = generateID()
+			}
+		})
 
-		_, err := tx.ExecContext(c.Request().Context(),
-			"INSERT INTO `book` (`id`, `title`, `author`, `genre`, `created_at`) VALUES (?, ?, ?, ?, ?)",
-			id, req.Title, req.Author, req.Genre, createdAt)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-
-		var record Book
-		err = tx.GetContext(c.Request().Context(), &record, "SELECT * FROM `book` WHERE `id` = ?", id)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-
-		res = append(res, record)
+		bi.Add(id, req.Title, req.Author, req.Genre, createdAt)
+		res = append(res, Book{
+			ID:        id,
+			Title:     req.Title,
+			Author:    req.Author,
+			Genre:     req.Genre,
+			CreatedAt: createdAt,
+		})
 	}
-
-	_ = tx.Commit()
+	query, args := bi.Query()
+	_, err := db.ExecContext(c.Request().Context(), query, args...)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 
 	return c.JSON(http.StatusCreated, res)
 }
@@ -1007,6 +1050,12 @@ func getBookQRCodeHandler(c echo.Context) error {
 		}
 
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	f, err := os.Open(fmt.Sprintf("%s/%s.png", qrCodeDirName, id))
+	if err == nil {
+		defer f.Close()
+		return c.Stream(http.StatusOK, "image/png", f)
 	}
 
 	pr, pw := io.Pipe()
