@@ -1030,10 +1030,12 @@ func getLendingsHandler(c echo.Context) error {
 
 		member, ok := memberCache.Load(lending.MemberID)
 		if !ok {
-			err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", lending.MemberID)
+			newMember := Member{}
+			err = tx.GetContext(c.Request().Context(), newMember, "SELECT * FROM `member` WHERE `id` = ?", lending.MemberID)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
+			member = &newMember
 		}
 		res[i].MemberName = member.Name
 
