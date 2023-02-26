@@ -511,7 +511,12 @@ func getMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
-	return c.JSON(http.StatusOK, member)
+	var mem Member
+	member.Read(func(m *Member) {
+		mem = *m
+	})
+
+	return c.JSON(http.StatusOK, mem)
 }
 
 type PatchMemberRequest struct {
@@ -546,7 +551,7 @@ func patchMemberHandler(c echo.Context) error {
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
 	if !ok {
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
 	query := "UPDATE `member` SET "
@@ -607,7 +612,7 @@ func banMemberHandler(c echo.Context) error {
 	// 会員の存在を確認
 	member, ok := memberCache.Load(id)
 	if !ok {
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
 	_, err = tx.ExecContext(c.Request().Context(), "UPDATE `member` SET `banned` = true WHERE `id` = ?", id)
