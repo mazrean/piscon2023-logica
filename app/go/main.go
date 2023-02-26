@@ -384,9 +384,10 @@ func postMemberHandler(c echo.Context) error {
 		Banned:      false,
 		CreatedAt:   time.Now(),
 	}
-	memberCache.Store(id, isulocker.NewValue(res, "member"))
+	memberValue := isulocker.NewValue(res, "member")
+	memberCache.Store(id, memberValue)
 	memberIDCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
-		members = append(members, isulocker.NewValue(res, "member"))
+		members = append(members, memberValue)
 		sort.SliceStable(members, func(i, j int) bool {
 			var result bool
 			members[i].Read(func(memberI *Member) {
@@ -399,7 +400,7 @@ func postMemberHandler(c echo.Context) error {
 		return members
 	})
 	memberNameCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
-		members = append(members, isulocker.NewValue(res, "member"))
+		members = append(members, memberValue)
 		sort.SliceStable(members, func(i, j int) bool {
 			var result bool
 			members[i].Read(func(memberI *Member) {
@@ -487,7 +488,7 @@ func getMembersHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid order")
 	}
 
-	total := int(memberIDCache.Len())
+	total := int(memberCache.Len())
 
 	return c.JSON(http.StatusOK, GetMembersResponse{
 		Members: members,
