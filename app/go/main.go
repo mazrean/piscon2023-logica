@@ -1029,7 +1029,7 @@ func getLendingsHandler(c echo.Context) error {
 		res[i].Lending = lending
 
 		member, ok := memberCache.Load(lending.MemberID)
-		if ok {
+		if !ok {
 			return echo.NewHTTPError(http.StatusInternalServerError, "member not found")
 		}
 		res[i].MemberName = member.Name
