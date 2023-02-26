@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -289,6 +291,16 @@ func initQRCode() error {
 	return eg.Wait()
 }
 
+type pngEncoder struct{}
+
+func (j pngEncoder) Encode(w io.Writer, img image.Image) error {
+	enc := png.Encoder{
+		CompressionLevel: png.NoCompression,
+	}
+
+	return enc.Encode(w, img)
+}
+
 // QRコードを生成
 func generateQRCode(id string, w io.WriteCloser) error {
 	encryptedID, err := encrypt(id)
@@ -316,7 +328,7 @@ func generateQRCode(id string, w io.WriteCloser) error {
 		w,
 		standard.WithQRWidth(1),
 		standard.WithBorderWidth(4),
-		standard.WithBuiltinImageEncoder(standard.PNG_FORMAT),
+		standard.WithCustomImageEncoder(pngEncoder{}),
 	)
 	err = qrc.Save(sw)
 	if err != nil {
