@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -207,7 +208,10 @@ func decrypt(cipherText string) (string, error) {
 	return string(decryptedText), nil
 }
 
-const qrCodeDirName = "../images/qr"
+const (
+	qrCodeDirName     = "../images/qr"
+	initQRCodeDirName = "../images/qr-init"
+)
 
 var (
 	idPool = isulocker.NewValue([]string{}, "id_pool")
@@ -225,11 +229,6 @@ func initQRCode() error {
 	}
 
 	var ids []string
-	err = db.Select(&ids, "SELECT id FROM member UNION SELECT id FROM book")
-	if err != nil {
-		return err
-	}
-
 	for i := 0; i < 50; i++ {
 		id := generateID()
 		idPool.Write(func(s *[]string) {
@@ -238,17 +237,28 @@ func initQRCode() error {
 		ids = append(ids, id)
 	}
 
+	dir, err := os.ReadDir(initQRCodeDirName)
+	if err != nil {
+		return err
+	}
+
 	eg := errgroup.Group{}
-	for _, id := range ids {
-		id := id
+	for _, file := range dir {
+		file := file
 		eg.Go(func() error {
-			file, err := os.Create(fmt.Sprintf("%s/%s.png", qrCodeDirName, id))
+			srcF, err := os.Create(filepath.Join(initQRCodeDirName, file.Name()))
 			if err != nil {
 				return err
 			}
-			defer file.Close()
+			defer srcF.Close()
 
-			err = generateQRCode(id, file)
+			dstF, err := os.Create(filepath.Join(qrCodeDirName, file.Name()))
+			if err != nil {
+				return err
+			}
+			defer dstF.Close()
+
+			_, err = io.Copy(dstF, srcF)
 			if err != nil {
 				return err
 			}
