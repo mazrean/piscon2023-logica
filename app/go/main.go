@@ -273,6 +273,7 @@ func initQRCode(initialize bool) error {
 
 	eg := errgroup.Group{}
 	for _, file := range dir {
+		file := file
 		eg.Go(func() error {
 			_, err := os.Stat(filepath.Join(qrCodeDirName, file.Name()))
 			if err == nil {
@@ -301,10 +302,41 @@ func initQRCode(initialize bool) error {
 
 			return nil
 		})
-		if err != nil {
-			return err
-		}
 	}
+
+	idPool.Read(func(ids *[]string) {
+		for _, id := range *ids {
+			id := id
+			eg.Go(func() error {
+				_, err := os.Stat(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
+				if err == nil {
+					return nil
+				}
+				if !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+
+				srcF, err := os.Open(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)))
+				if err != nil {
+					return err
+				}
+				defer srcF.Close()
+
+				destf, err := os.Create(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
+				if err != nil {
+					return err
+				}
+				defer destf.Close()
+
+				_, err = io.Copy(destf, srcF)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			})
+		}
+	})
 
 	return eg.Wait()
 }
