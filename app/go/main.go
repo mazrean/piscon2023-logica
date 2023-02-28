@@ -257,8 +257,8 @@ func initQRCode(initialize bool) error {
 	}
 
 	idPool.Write(func(s *[]string) {
-		newS := make([]string, 0, 15000)
-		for i := 0; i < 15000; i++ {
+		newS := make([]string, 0, 5000)
+		for i := 0; i < 5000; i++ {
 			id := generateID()
 			newS = append(newS, id)
 			ids = append(ids, id)
