@@ -1126,6 +1126,7 @@ func getBookQRCodeHandler(c echo.Context) error {
 	f, err := os.Open(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
 	if err == nil {
 		defer f.Close()
+		log.Printf("succeeded to open qr code file: %s\n", id)
 		return c.Stream(http.StatusOK, "image/png", f)
 	}
 	log.Printf("failed to open qr code file: %s\n", err)
