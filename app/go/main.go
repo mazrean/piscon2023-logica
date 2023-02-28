@@ -1169,6 +1169,7 @@ func postLendingsHandler(c echo.Context) error {
 
 		id := generateID()
 
+		bi.Add(id, bookID, req.MemberID, due, lendingTime)
 		res[i] = PostLendingsResponse{
 			Lending: Lending{
 				ID:        id,
