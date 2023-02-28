@@ -820,7 +820,6 @@ func getMemberQRCodeHandler(c echo.Context) error {
 		defer f.Close()
 		return c.Stream(http.StatusOK, "image/png", f)
 	}
-	log.Printf("failed to open qr code file: %s\n", err)
 
 	pr, pw := io.Pipe()
 	eg := errgroup.Group{}
@@ -877,12 +876,10 @@ func postBooksHandler(c echo.Context) error {
 			if len(*idPool) != 0 {
 				id = (*idPool)[0]
 				*idPool = (*idPool)[1:]
-				log.Printf("reuse id: %s\n", id)
 			} else {
 				id = generateID()
 			}
 		})
-		log.Printf("generated id: %s\n", id)
 
 		bi.Add(id, req.Title, req.Author, req.Genre, createdAt)
 		res = append(res, Book{
@@ -1081,10 +1078,8 @@ func getBookQRCodeHandler(c echo.Context) error {
 	f, err := os.Open(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
 	if err == nil {
 		defer f.Close()
-		log.Printf("succeeded to open qr code file: %s\n", id)
 		return c.Stream(http.StatusOK, "image/png", f)
 	}
-	log.Printf("failed to open qr code file: %s\n", err)
 
 	pr, pw := io.Pipe()
 	eg := errgroup.Group{}
@@ -1298,7 +1293,7 @@ func returnLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
-	bookValues := make([]*isulocker.Value[GetBookResponse], len(req.BookIDs))
+	bookValues := make([]*isulocker.Value[GetBookResponse], 0, len(req.BookIDs))
 	for _, bookID := range req.BookIDs {
 		bookValue, ok := bookCache.Load(bookID)
 		if !ok {
