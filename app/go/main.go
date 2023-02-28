@@ -236,23 +236,28 @@ func initQRCode(initialize bool) error {
 
 	if initialize {
 		for _, id := range ids {
-			destF, err := os.Open(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)))
-			if errors.Is(err, os.ErrNotExist) {
-				destF, err = os.Create(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)))
+			err := func() error {
+				destF, err := os.Open(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)))
+				if errors.Is(err, os.ErrNotExist) {
+					destF, err = os.Create(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)))
+					if err != nil {
+						return err
+					}
+				} else if err != nil {
+					return err
+				}
+				defer destF.Close()
+
+				err = generateQRCode(id, destF)
 				if err != nil {
 					return err
 				}
-			} else if err != nil {
-				return err
-			}
-			defer destF.Close()
 
-			err = generateQRCode(id, destF)
+				return nil
+			}()
 			if err != nil {
 				return err
 			}
-
-			return nil
 		}
 	}
 
