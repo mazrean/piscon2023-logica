@@ -104,6 +104,11 @@ func main() {
 		panic(err)
 	}
 
+	err = initBookCache()
+	if err != nil {
+		panic(err)
+	}
+
 	err = initQRCode(true)
 	if err != nil {
 		panic(err)
@@ -364,6 +369,11 @@ func initializeHandler(c echo.Context) error {
 	}
 
 	err = initMemberCache()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	err = initBookCache()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
