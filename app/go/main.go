@@ -1053,7 +1053,7 @@ func getBookHandler(c echo.Context) error {
 	}
 
 	bookValue, ok := bookCache.Load(id)
-	if ok {
+	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "no book found")
 	}
 
