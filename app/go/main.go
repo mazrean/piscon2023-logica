@@ -104,7 +104,7 @@ func main() {
 		panic(err)
 	}
 
-	err = initQRCode()
+	err = initQRCode(true)
 	if err != nil {
 		panic(err)
 	}
@@ -222,7 +222,7 @@ var (
 	idPool = isulocker.NewValue([]string{}, "id_pool")
 )
 
-func initQRCode() error {
+func initQRCode(initialize bool) error {
 	err := os.MkdirAll(qrCodeDirName, 0755)
 	if err != nil {
 		return err
@@ -232,6 +232,36 @@ func initQRCode() error {
 	err = db.Select(&ids, "SELECT id FROM book UNION SELECT id FROM member")
 	if err != nil {
 		return err
+	}
+
+	if initialize {
+		eg := errgroup.Group{}
+		for _, id := range ids {
+			id := id
+			eg.Go(func() error {
+				destF, err := os.Open(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)))
+				if errors.Is(err, os.ErrNotExist) {
+					destF, err = os.Create(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)))
+					if err != nil {
+						return err
+					}
+				} else if err != nil {
+					return err
+				}
+				defer destF.Close()
+
+				err = generateQRCode(id, destF)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			})
+		}
+		err = eg.Wait()
+		if err != nil {
+			return err
+		}
 	}
 
 	idPool.Write(func(s *[]string) {
@@ -251,37 +281,8 @@ func initQRCode() error {
 
 	eg := errgroup.Group{}
 	for _, file := range dir {
-		file := file
 		eg.Go(func() error {
-			srcF, err := os.Create(filepath.Join(initQRCodeDirName, file.Name()))
-			if err != nil {
-				return err
-			}
-			defer srcF.Close()
-
-			dstF, err := os.Create(filepath.Join(qrCodeDirName, file.Name()))
-			if err != nil {
-				return err
-			}
-			defer dstF.Close()
-
-			_, err = io.Copy(dstF, srcF)
-			if err != nil {
-				return err
-			}
-
-			return nil
-		})
-	}
-	err = eg.Wait()
-	if err != nil {
-		return err
-	}
-
-	eg = errgroup.Group{}
-	for _, id := range ids {
-		eg.Go(func() error {
-			_, err := os.Stat(filepath.Join(qrCodeDirName, id+".png"))
+			_, err := os.Stat(filepath.Join(qrCodeDirName, file.Name()))
 			if err == nil {
 				return nil
 			}
@@ -289,13 +290,19 @@ func initQRCode() error {
 				return err
 			}
 
-			f, err := os.Create(filepath.Join(qrCodeDirName, id+".png"))
+			srcF, err := os.Open(filepath.Join(initQRCodeDirName, file.Name()))
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer srcF.Close()
 
-			err = generateQRCode(id, f)
+			destf, err := os.Create(filepath.Join(qrCodeDirName, file.Name()))
+			if err != nil {
+				return err
+			}
+			defer destf.Close()
+
+			_, err = io.Copy(destf, srcF)
 			if err != nil {
 				return err
 			}
@@ -406,7 +413,7 @@ func initializeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	err = initQRCode()
+	err = initQRCode(false)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
