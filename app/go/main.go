@@ -889,6 +889,31 @@ func postBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	bookValues := make([]*isulocker.Value[GetBookResponse], 0, len(res))
+	for _, book := range res {
+		bookValue := isulocker.NewValue(GetBookResponse{
+			Book:    book,
+			Lending: false,
+		}, "book")
+		bookCache.Store(book.ID, bookValue)
+		bookValues = append(bookValues, bookValue)
+	}
+	bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
+		books = append(books, bookValues...)
+		sort.Slice(books, func(i, j int) bool {
+			var ok bool
+			books[i].Read(func(bookI *GetBookResponse) {
+				books[j].Read(func(bookJ *GetBookResponse) {
+					ok = bookI.Book.ID < bookJ.Book.ID
+				})
+			})
+
+			return ok
+		})
+
+		return books
+	})
+
 	return c.JSON(http.StatusCreated, res)
 }
 
@@ -931,90 +956,72 @@ func getBooksHandler(c echo.Context) error {
 	// シーク法をフロントエンドでは実装したが、バックエンドは力尽きた
 	_ = c.QueryParam("last_book_id")
 
-	tx, err := db.BeginTxx(c.Request().Context(), nil)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	query := "SELECT COUNT(*) FROM `book` WHERE "
-	var args []any
-	if genre != "" {
-		query += "genre = ? AND "
-		args = append(args, genre)
-	}
-	if title != "" {
-		query += "title LIKE ? AND "
-		args = append(args, "%"+title+"%")
-	}
-	if author != "" {
-		query += "author LIKE ? AND "
-		args = append(args, "%"+author+"%")
-	}
-	query = strings.TrimSuffix(query, "AND ")
-
-	var total int
-	err = tx.GetContext(c.Request().Context(), &total, query, args...)
-	if err != nil {
-		c.Logger().Error(err)
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if total == 0 {
-		return echo.NewHTTPError(http.StatusNotFound, "no books found")
-	}
-
-	args = []any{}
-	query = "SELECT  `book`.`id` AS `book.id`, `book`.`title` AS `book.title`, `book`.`author` AS `book.author`, `book`.`genre` AS `book.genre`, `book`.`created_at` AS `book.created_at`, " +
-		"`lending`.`id` IS NOT NULL AS `is_lending` " +
-		"FROM `book` LEFT OUTER JOIN `lending` ON `book`.`id` = `lending`.`book_id` WHERE "
-	if genre != "" {
-		query += "genre = ? AND "
-		args = append(args, genre)
-	}
-	if title != "" {
-		query += "title LIKE ? AND "
-		args = append(args, "%"+title+"%")
-	}
-	if author != "" {
-		query += "author LIKE ? AND "
-		args = append(args, "%"+author+"%")
-	}
-	query = strings.TrimSuffix(query, "AND ")
-	query += "ORDER BY book.id "
-	query += "LIMIT ? OFFSET ?"
-	args = append(args, bookPageLimit, (page-1)*bookPageLimit)
-
-	var books []struct {
-		Book      Book `db:"book"`
-		IsLending bool `db:"is_lending"`
-	}
-	err = tx.SelectContext(c.Request().Context(), &books, query, args...)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if len(books) == 0 {
-		return echo.NewHTTPError(http.StatusNotFound, "no books to show in this page")
-	}
-
 	res := GetBooksResponse{
-		Books: make([]GetBookResponse, len(books)),
-		Total: total,
+		Books: make([]GetBookResponse, 0, bookPageLimit),
+		Total: 0,
 	}
-	for i, book := range books {
-		res.Books[i].Book = book.Book
-		res.Books[i].Lending = book.IsLending
-	}
+	bookSliceCache.Range(func(i int, book *isulocker.Value[GetBookResponse]) bool {
+		book.Read(func(book *GetBookResponse) {
+			if genre != "" {
+				intGenre, err := strconv.Atoi(genre)
+				if err != nil {
+					log.Printf("failed to convert genre to int: %s\n", err)
+					return
+				}
 
-	_ = tx.Commit()
+				if book.Genre != Genre(intGenre) {
+					return
+				}
+			}
+			if title != "" {
+				if !strings.Contains(book.Title, title) {
+					return
+				}
+			}
+			if author != "" {
+				if !strings.Contains(book.Author, author) {
+					return
+				}
+			}
+
+			if res.Total >= (page-1)*bookPageLimit && len(res.Books) < bookPageLimit {
+				res.Books = append(res.Books, *book)
+			}
+			res.Total++
+		})
+
+		return true
+	})
 
 	return c.JSON(http.StatusOK, res)
 }
 
+var (
+	bookCache      = isucache.NewAtomicMap[string, *isulocker.Value[GetBookResponse]]("book")
+	bookSliceCache = isucache.NewSlice("book_slice", make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
+)
+
+func initBookCache() error {
+	var books []GetBookResponse
+	err := db.Select(&books, "SELECT  `book`.`id` AS `book.id`, `book`.`title` AS `book.title`, `book`.`author` AS `book.author`, `book`.`genre` AS `book.genre`, `book`.`created_at` AS `book.created_at`, "+
+		"`lending`.`id` IS NOT NULL AS `is_lending` "+
+		"FROM `book` LEFT OUTER JOIN `lending` ON `book`.`id` = `lending`.`book_id` ORDER BY book.id")
+	if err != nil {
+		return err
+	}
+
+	for _, book := range books {
+		bookValue := isulocker.NewValue(book, "book")
+		bookCache.Store(book.ID, bookValue)
+		bookSliceCache.Append(bookValue)
+	}
+
+	return nil
+}
+
 type GetBookResponse struct {
-	Book
-	Lending bool `json:"lending"`
+	Book    `db:"book"`
+	Lending bool `json:"lending" db:"is_lending"`
 }
 
 // 蔵書を取得
@@ -1035,39 +1042,17 @@ func getBookHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "encrypted must be boolean value")
 	}
 
-	tx, err := db.BeginTxx(c.Request().Context(), &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	book := Book{}
-	err = tx.GetContext(c.Request().Context(), &book, "SELECT * FROM `book` WHERE `id` = ?", id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	bookValue, ok := bookCache.Load(id)
+	if ok {
+		return echo.NewHTTPError(http.StatusNotFound, "no book found")
 	}
 
-	res := GetBookResponse{
-		Book: book,
-	}
-	err = tx.GetContext(c.Request().Context(), &Lending{}, "SELECT * FROM `lending` WHERE `book_id` = ?", id)
-	if err == nil {
-		res.Lending = true
-	} else if errors.Is(err, sql.ErrNoRows) {
-		res.Lending = false
-	} else {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
+	var res GetBookResponse
+	bookValue.Read(func(v *GetBookResponse) {
+		res = *v
+	})
 
-	_ = tx.Commit()
-
-	return c.JSON(http.StatusOK, res)
+	return c.JSON(http.StatusOK, &res)
 }
 
 // 蔵書のQRコードを取得
@@ -1078,13 +1063,9 @@ func getBookQRCodeHandler(c echo.Context) error {
 	}
 
 	// 蔵書の存在確認
-	err := db.GetContext(c.Request().Context(), &Book{}, "SELECT * FROM `book` WHERE `id` = ?", id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	_, ok := bookCache.Load(id)
+	if !ok {
+		return echo.NewHTTPError(http.StatusNotFound, "no book found")
 	}
 
 	f, err := os.Open(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
@@ -1147,14 +1128,6 @@ func postLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "at least one book_ids is required")
 	}
 
-	tx, err := db.BeginTxx(c.Request().Context(), nil)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
 	// 会員の存在確認
 	member, ok := memberCache.Load(req.MemberID)
 	if !ok {
@@ -1165,49 +1138,54 @@ func postLendingsHandler(c echo.Context) error {
 	due := lendingTime.Add(LendingPeriod * time.Millisecond)
 	res := make([]PostLendingsResponse, len(req.BookIDs))
 
+	bi := query.NewBulkInsert("`lending`", "`id`, `book_id`, `member_id`, `due`, `created_at`", "(?, ?, ?, ?, ?)")
+	bookValues := make([]*isulocker.Value[GetBookResponse], 0, len(req.BookIDs))
 	for i, bookID := range req.BookIDs {
 		// 蔵書の存在確認
-		var book Book
-		err = tx.GetContext(c.Request().Context(), &book, "SELECT * FROM `book` WHERE `id` = ?", bookID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return echo.NewHTTPError(http.StatusNotFound, err.Error())
-			}
-
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		bookValue, ok := bookCache.Load(bookID)
+		if !ok {
+			return echo.NewHTTPError(http.StatusNotFound, "book not found")
 		}
+		bookValues = append(bookValues, bookValue)
 
 		// 貸し出し中かどうか確認
-		var lending Lending
-		err = tx.GetContext(c.Request().Context(), &lending, "SELECT * FROM `lending` WHERE `book_id` = ?", bookID)
-		if err == nil {
+		var isLending bool
+		bookValue.Read(func(v *GetBookResponse) {
+			isLending = v.Lending
+		})
+		if isLending {
 			return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		id := generateID()
 
-		// 貸し出し
-		_, err = tx.ExecContext(c.Request().Context(),
-			"INSERT INTO `lending` (`id`, `book_id`, `member_id`, `due`, `created_at`) VALUES (?, ?, ?, ?, ?)",
-			id, bookID, req.MemberID, due, lendingTime)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		res[i] = PostLendingsResponse{
+			Lending: Lending{
+				ID:        id,
+				BookID:    bookID,
+				MemberID:  req.MemberID,
+				Due:       due,
+				CreatedAt: lendingTime,
+			},
 		}
-
-		err := tx.GetContext(c.Request().Context(), &res[i], "SELECT * FROM `lending` WHERE `id` = ?", id)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-
 		member.Read(func(member *Member) {
 			res[i].MemberName = member.Name
 		})
-		res[i].BookTitle = book.Title
+		bookValue.Read(func(book *GetBookResponse) {
+			res[i].BookTitle = book.Title
+		})
 	}
 
-	_ = tx.Commit()
+	query, args := bi.Query()
+	_, err := db.ExecContext(c.Request().Context(), query, args...)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	for _, bookValue := range bookValues {
+		bookValue.Write(func(v *GetBookResponse) {
+			v.Lending = true
+		})
+	}
 
 	return c.JSON(http.StatusCreated, res)
 }
@@ -1263,12 +1241,13 @@ func getLendingsHandler(c echo.Context) error {
 			})
 		}
 
-		var book Book
-		err = tx.GetContext(c.Request().Context(), &book, "SELECT * FROM `book` WHERE `id` = ?", lending.BookID)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		bookValue, ok := bookCache.Load(lending.BookID)
+		if !ok {
+			return echo.NewHTTPError(http.StatusInternalServerError, "book not found")
 		}
-		res[i].BookTitle = book.Title
+		bookValue.Read(func(book *GetBookResponse) {
+			res[i].BookTitle = book.Title
+		})
 	}
 
 	_ = tx.Commit()
@@ -1308,8 +1287,21 @@ func returnLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "member not found")
 	}
 
+	bookValues := make([]*isulocker.Value[GetBookResponse], len(req.BookIDs))
 	for _, bookID := range req.BookIDs {
-		// 貸し出しの存在確認
+		bookValue, ok := bookCache.Load(bookID)
+		if !ok {
+			return echo.NewHTTPError(http.StatusNotFound, "book not found")
+		}
+		var isLending bool
+		bookValue.Read(func(book *GetBookResponse) {
+			isLending = book.Lending
+		})
+		if !isLending {
+			return echo.NewHTTPError(http.StatusNotFound, "book not lending")
+		}
+		bookValues = append(bookValues, bookValue)
+
 		var lending Lending
 		err = tx.GetContext(c.Request().Context(), &lending,
 			"SELECT * FROM `lending` WHERE `member_id` = ? AND `book_id` = ?", req.MemberID, bookID)
@@ -1326,6 +1318,12 @@ func returnLendingsHandler(c echo.Context) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
+	}
+
+	for _, bookValue := range bookValues {
+		bookValue.Write(func(v *GetBookResponse) {
+			v.Lending = false
+		})
 	}
 
 	_ = tx.Commit()
