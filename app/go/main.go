@@ -904,10 +904,12 @@ func postBooksHandler(c echo.Context) error {
 			if len(*idPool) != 0 {
 				id = (*idPool)[0]
 				*idPool = (*idPool)[1:]
+				log.Printf("reuse id: %s\n", id)
 			} else {
 				id = generateID()
 			}
 		})
+		log.Printf("generated id: %s\n", id)
 
 		bi.Add(id, req.Title, req.Author, req.Genre, createdAt)
 		res = append(res, Book{
