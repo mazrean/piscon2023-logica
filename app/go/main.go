@@ -234,28 +234,6 @@ func initQRCode(initialize bool) error {
 		return err
 	}
 
-	if initialize {
-		for _, id := range ids {
-			err := func() error {
-				destF, err := os.OpenFile(filepath.Join(initQRCodeDirName, fmt.Sprintf("%s.png", id)), os.O_CREATE|os.O_WRONLY, 0644)
-				if err != nil {
-					return err
-				}
-				defer destF.Close()
-
-				err = generateQRCode(id, destF)
-				if err != nil {
-					return err
-				}
-
-				return nil
-			}()
-			if err != nil {
-				return err
-			}
-		}
-	}
-
 	idPool.Write(func(s *[]string) {
 		newS := make([]string, 0, 5000)
 		for i := 0; i < 5000; i++ {
@@ -266,16 +244,9 @@ func initQRCode(initialize bool) error {
 		*s = newS
 	})
 
-	dir, err := os.ReadDir(initQRCodeDirName)
-	if err != nil {
-		return err
-	}
-
-	eg := errgroup.Group{}
-	for _, file := range dir {
-		file := file
-		eg.Go(func() error {
-			_, err := os.Stat(filepath.Join(qrCodeDirName, file.Name()))
+	for _, id := range ids {
+		err = func() error {
+			_, err := os.Stat(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
 			if err == nil {
 				return nil
 			}
@@ -283,58 +254,22 @@ func initQRCode(initialize bool) error {
 				return err
 			}
 
-			srcF, err := os.Open(filepath.Join(initQRCodeDirName, file.Name()))
-			if err != nil {
-				return err
-			}
-			defer srcF.Close()
-
-			dstF, err := os.Create(filepath.Join(qrCodeDirName, file.Name()))
+			dstF, err := os.Create(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
 			if err != nil {
 				return err
 			}
 			defer dstF.Close()
 
-			_, err = io.Copy(dstF, srcF)
+			err = generateQRCode(id, dstF)
 			if err != nil {
 				return err
 			}
 
 			return nil
-		})
+		}()
 	}
 
-	idPool.Read(func(ids *[]string) {
-		for _, id := range *ids {
-			err := func() error {
-				_, err := os.Stat(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
-				if err == nil {
-					return nil
-				}
-				if !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
-
-				dstF, err := os.Create(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
-				if err != nil {
-					return err
-				}
-				defer dstF.Close()
-
-				err = generateQRCode(id, dstF)
-				if err != nil {
-					return err
-				}
-
-				return nil
-			}()
-			if err != nil {
-				log.Println(err)
-			}
-		}
-	})
-
-	return eg.Wait()
+	return err
 }
 
 type pngEncoder struct{}
