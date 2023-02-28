@@ -38,6 +38,9 @@ import (
 )
 
 func main() {
+	jst := time.FixedZone("Asia/Tokyo", 9*60*60)
+	time.Local = jst
+
 	host := getEnvOrDefault("DB_HOST", "localhost")
 	port := getEnvOrDefault("DB_PORT", "3306")
 	user := getEnvOrDefault("DB_USER", "isucon")
@@ -231,13 +234,15 @@ func initQRCode() error {
 		return err
 	}
 
-	for i := 0; i < 15000; i++ {
-		id := generateID()
-		idPool.Write(func(s *[]string) {
-			*s = append(*s, id)
-		})
-		ids = append(ids, id)
-	}
+	idPool.Write(func(s *[]string) {
+		newS := make([]string, 0, 15000)
+		for i := 0; i < 15000; i++ {
+			id := generateID()
+			newS = append(newS, id)
+			ids = append(ids, id)
+		}
+		*s = newS
+	})
 
 	dir, err := os.ReadDir(initQRCodeDirName)
 	if err != nil {
