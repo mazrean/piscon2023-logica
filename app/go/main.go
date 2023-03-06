@@ -1047,14 +1047,25 @@ func getBooksHandler(c echo.Context) error {
 				return true
 			})
 		} else {
-			bookGenreSliceCaches[intGenre].Slice((page-1)*bookPageLimit, page*bookPageLimit, func(books []*isulocker.Value[GetBookResponse]) {
+			res.Total = bookGenreSliceCaches[intGenre].Len()
+
+			start := (page - 1) * bookPageLimit
+			if start >= res.Total {
+				return c.JSON(http.StatusOK, res)
+			}
+
+			end := page * bookPageLimit
+			if end > res.Total {
+				end = res.Total
+			}
+
+			bookGenreSliceCaches[intGenre].Slice((page-1)*bookPageLimit, end, func(books []*isulocker.Value[GetBookResponse]) {
 				for _, book := range books {
 					book.Read(func(book *GetBookResponse) {
 						res.Books = append(res.Books, *book)
 					})
 				}
 			})
-			res.Total = bookGenreSliceCaches[intGenre].Len()
 		}
 
 		return c.JSON(http.StatusOK, res)
