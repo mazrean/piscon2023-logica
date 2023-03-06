@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -1046,8 +1047,8 @@ func getBooksHandler(c echo.Context) error {
 				return true
 			})
 		} else {
-			bookGenreSliceCaches[intGenre].Slice((page-1)*bookPageLimit, page*bookPageLimit, func(book []*isulocker.Value[GetBookResponse]) {
-				for _, book := range book {
+			bookGenreSliceCaches[intGenre].Slice((page-1)*bookPageLimit, page*bookPageLimit, func(books []*isulocker.Value[GetBookResponse]) {
+				for _, book := range books {
 					book.Read(func(book *GetBookResponse) {
 						res.Books = append(res.Books, *book)
 					})
@@ -1099,14 +1100,8 @@ var (
 	bookCache            = isucache.NewAtomicMap[string, *isulocker.Value[GetBookResponse]]("book")
 	bookSliceCache       = isucache.NewSlice("book_slice", make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
 	bookGenreSliceCaches [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]
+	once                 = sync.Once{}
 )
-
-func init() {
-	bookGenreSliceCaches = [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]{}
-	for i := 0; i < 10; i++ {
-		bookGenreSliceCaches[i] = isucache.NewSlice(fmt.Sprintf("book_genre_%d", i), make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
-	}
-}
 
 func initBookCache() error {
 	var books []GetBookResponse
@@ -1116,6 +1111,13 @@ func initBookCache() error {
 	if err != nil {
 		return err
 	}
+
+	once.Do(func() {
+		bookGenreSliceCaches = [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]{}
+		for i := 0; i < 10; i++ {
+			bookGenreSliceCaches[i] = isucache.NewSlice(fmt.Sprintf("book_genre_%d", i), make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
+		}
+	})
 
 	for _, book := range books {
 		bookValue := isulocker.NewValue(book, "book")
