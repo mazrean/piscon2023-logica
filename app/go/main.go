@@ -941,9 +941,47 @@ func postBooksHandler(c echo.Context) error {
 		return bookValues[i].ID < bookValues[j].ID
 	})
 
-	eg := errgroup.Group{}
-	eg.Go(func() error {
-		bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
+	bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
+		newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
+
+		i := 0
+		for _, book := range books {
+			book.Read(func(b *GetBookResponse) {
+				for i < len(bookValues) && bookValues[i].ID < b.ID {
+					bookValue := isulocker.NewValue(GetBookResponse{
+						Book:    bookValues[i],
+						Lending: false,
+					}, "book")
+					bookCache.Store(bookValues[i].ID, bookValue)
+					newBooks = append(newBooks, bookValue)
+					i++
+				}
+				newBooks = append(newBooks, book)
+			})
+		}
+
+		for ; i < len(bookValues); i++ {
+			bookValue := isulocker.NewValue(GetBookResponse{
+				Book:    bookValues[i],
+				Lending: false,
+			}, "book")
+			bookCache.Store(bookValues[i].ID, bookValue)
+			newBooks = append(newBooks, bookValue)
+		}
+
+		return newBooks
+	})
+
+	for i, bookValues := range bookGenres {
+		if len(bookValues) == 0 {
+			continue
+		}
+
+		sort.Slice(bookValues, func(i, j int) bool {
+			return bookValues[i].ID < bookValues[j].ID
+		})
+
+		bookGenreSliceCaches[i].Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
 			newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
 
 			i := 0
@@ -973,66 +1011,9 @@ func postBooksHandler(c echo.Context) error {
 
 			return newBooks
 		})
-
-		return nil
-	})
-
-	for i, bookValues := range bookGenres {
-		if len(bookValues) == 0 {
-			continue
-		}
-
-		i, bookValues := i, bookValues
-		eg.Go(func() error {
-			sort.Slice(bookValues, func(i, j int) bool {
-				return bookValues[i].ID < bookValues[j].ID
-			})
-
-			bookGenreSliceCaches[i].Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
-				newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
-
-				i := 0
-				for _, book := range books {
-					book.Read(func(b *GetBookResponse) {
-						for i < len(bookValues) && bookValues[i].ID < b.ID {
-							bookValue := isulocker.NewValue(GetBookResponse{
-								Book:    bookValues[i],
-								Lending: false,
-							}, "book")
-							bookCache.Store(bookValues[i].ID, bookValue)
-							newBooks = append(newBooks, bookValue)
-							i++
-						}
-						newBooks = append(newBooks, book)
-					})
-				}
-
-				for ; i < len(bookValues); i++ {
-					bookValue := isulocker.NewValue(GetBookResponse{
-						Book:    bookValues[i],
-						Lending: false,
-					}, "book")
-					bookCache.Store(bookValues[i].ID, bookValue)
-					newBooks = append(newBooks, bookValue)
-				}
-
-				return newBooks
-			})
-
-			return nil
-		})
 	}
 
-	err = c.JSON(http.StatusCreated, res)
-	if err != nil {
-		return err
-	}
-
-	if err := eg.Wait(); err != nil {
-		return err
-	}
-
-	return nil
+	return c.JSON(http.StatusCreated, res)
 }
 
 const bookPageLimit = 50
