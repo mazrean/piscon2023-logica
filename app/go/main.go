@@ -258,7 +258,7 @@ func initQRCode(initialize bool) error {
 
 	idMap := make(map[string]struct{})
 	for _, id := range ids {
-		idMap[id] = struct{}{}
+		idMap[fmt.Sprintf("%s.png", id)] = struct{}{}
 	}
 
 	files, err := os.ReadDir(qrCodeDirName)
