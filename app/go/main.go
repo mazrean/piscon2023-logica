@@ -891,8 +891,8 @@ func postBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	res := []Book{}
-	createdAt := time.Now()
+	res := make([]Book, 0, len(reqSlice))
+	createdAt := time.Now().UTC()
 
 	bi := query.NewBulkInsert("book", "`id`, `title`, `author`, `genre`, `created_at`", "(?, ?, ?, ?, ?)")
 	for _, req := range reqSlice {
@@ -920,7 +920,7 @@ func postBooksHandler(c echo.Context) error {
 			Title:     req.Title,
 			Author:    req.Author,
 			Genre:     req.Genre,
-			CreatedAt: createdAt,
+			CreatedAt: createdAt.Truncate(time.Microsecond),
 		})
 	}
 	query, args := bi.Query()
