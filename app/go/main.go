@@ -34,8 +34,6 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/yeqown/go-qrcode/v2"
-	"github.com/yeqown/go-qrcode/writer/standard"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -315,7 +313,7 @@ func (j pngEncoder) Encode(w io.Writer, img image.Image) error {
 }
 
 // QRコードを生成
-func generateQRCode(id string, w io.WriteCloser) error {
+func generateQRCode(id string, w io.Writer) error {
 	encryptedID, err := encrypt(id)
 	if err != nil {
 		return err
@@ -328,22 +326,28 @@ func generateQRCode(id string, w io.WriteCloser) error {
 		 - バージョン5 (37x37ピクセル、マージン含め45x45ピクセル)
 		 - エラー訂正レベルM (15%)
 	*/
-	qrc, err := qrcode.NewWith(
-		encryptedID,
-		qrcode.WithVersion(6),
-		qrcode.WithErrorCorrectionLevel(qrcode.ErrorCorrectionMedium),
-	)
+	cmd := exec.
+		Command("qrencode", "-o", "-", "-t", "PNG", "-s", "1", "-v", "6", "--strict-version", "-l", "M", encryptedID)
+	if err != nil {
+		return err
+	}
+	r, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	err = cmd.Start()
 	if err != nil {
 		return err
 	}
 
-	sw := standard.NewWithWriter(
-		w,
-		standard.WithQRWidth(1),
-		standard.WithBorderWidth(4),
-		standard.WithCustomImageEncoder(pngEncoder{}),
-	)
-	err = qrc.Save(sw)
+	_, err = io.Copy(w, r)
+	if err != nil {
+		return err
+	}
+
+	err = cmd.Wait()
 	if err != nil {
 		return err
 	}
