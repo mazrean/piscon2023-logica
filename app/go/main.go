@@ -32,6 +32,8 @@ import (
 	isulocker "github.com/mazrean/isucon-go-tools/locker"
 	"github.com/mazrean/isucon-go-tools/query"
 	"github.com/oklog/ulid/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/yeqown/go-qrcode/v2"
 	"github.com/yeqown/go-qrcode/writer/standard"
 	"golang.org/x/sync/errgroup"
@@ -224,6 +226,10 @@ const (
 )
 
 var (
+	poolLen = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "id_pool_len",
+		Help: "The length of id pool",
+	})
 	idPool = isulocker.NewValue([]string{}, "id_pool")
 )
 
@@ -247,6 +253,7 @@ func initQRCode(initialize bool) error {
 			ids = append(ids, id)
 		}
 		*s = newS
+		poolLen.Set(float64(len(*s)))
 	})
 
 	idMap := make(map[string]struct{})
@@ -484,6 +491,7 @@ func postMemberHandler(c echo.Context) error {
 		if len(*idPool) != 0 {
 			id = (*idPool)[0]
 			*idPool = (*idPool)[1:]
+			poolLen.Dec()
 		} else {
 			id = generateID()
 		}
@@ -896,6 +904,7 @@ func postBooksHandler(c echo.Context) error {
 			if len(*idPool) != 0 {
 				id = (*idPool)[0]
 				*idPool = (*idPool)[1:]
+				poolLen.Dec()
 			} else {
 				id = generateID()
 			}
