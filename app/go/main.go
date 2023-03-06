@@ -1101,13 +1101,6 @@ var (
 	bookGenreSliceCaches [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]
 )
 
-func init() {
-	bookGenreSliceCaches = [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]{}
-	for i := 0; i < 10; i++ {
-		bookGenreSliceCaches[i] = isucache.NewSlice(fmt.Sprintf("book_genre_%d", i), make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
-	}
-}
-
 func initBookCache() error {
 	var books []GetBookResponse
 	err := db.Select(&books, "SELECT  `book`.`id` AS `book.id`, `book`.`title` AS `book.title`, `book`.`author` AS `book.author`, `book`.`genre` AS `book.genre`, `book`.`created_at` AS `book.created_at`, "+
@@ -1115,6 +1108,11 @@ func initBookCache() error {
 		"FROM `book` LEFT OUTER JOIN `lending` ON `book`.`id` = `lending`.`book_id` ORDER BY book.id")
 	if err != nil {
 		return err
+	}
+
+	bookGenreSliceCaches = [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]{}
+	for i := 0; i < 10; i++ {
+		bookGenreSliceCaches[i] = isucache.NewSlice(fmt.Sprintf("book_genre_%d", i), make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
 	}
 
 	for _, book := range books {
