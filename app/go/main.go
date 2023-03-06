@@ -590,10 +590,11 @@ func getMembersHandler(c echo.Context) error {
 	// シーク法をフロントエンドでは実装したが、バックエンドは力尽きた
 	_ = c.QueryParam("last_member_id")
 
-	members := make([]*Member, 0, memberPageLimit)
+	var members []*Member
 	order := c.QueryParam("order")
 	switch order {
 	case "":
+		members = make([]*Member, 0, memberPageLimit)
 		memberIDCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
 			for _, v := range s {
 				var member Member
@@ -604,6 +605,7 @@ func getMembersHandler(c echo.Context) error {
 			}
 		})
 	case "name_asc":
+		members = make([]*Member, 0, memberPageLimit)
 		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
 			for _, v := range s {
 				var member Member
@@ -615,6 +617,7 @@ func getMembersHandler(c echo.Context) error {
 		})
 	case "name_desc":
 		start, end = memberNameCache.Len()-end, memberNameCache.Len()-start
+		members = make([]*Member, 0, memberPageLimit)
 		memberNameCache.Slice(start, end, func(s []*isulocker.Value[Member]) {
 			for _, v := range s {
 				var member Member
@@ -926,29 +929,41 @@ func postBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	bookValues := make([]*isulocker.Value[GetBookResponse], 0, len(res))
-	for _, book := range res {
-		bookValue := isulocker.NewValue(GetBookResponse{
-			Book:    book,
-			Lending: false,
-		}, "book")
-		bookCache.Store(book.ID, bookValue)
-		bookValues = append(bookValues, bookValue)
-	}
+	bookValues := make([]Book, len(res))
+	copy(bookValues, res)
+	sort.Slice(bookValues, func(i, j int) bool {
+		return bookValues[i].ID < bookValues[j].ID
+	})
+
 	bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
-		books = append(books, bookValues...)
-		sort.Slice(books, func(i, j int) bool {
-			var ok bool
-			books[i].Read(func(bookI *GetBookResponse) {
-				books[j].Read(func(bookJ *GetBookResponse) {
-					ok = bookI.Book.ID < bookJ.Book.ID
-				})
+		newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
+
+		i := 0
+		for _, book := range books {
+			book.Read(func(b *GetBookResponse) {
+				for i < len(bookValues) && bookValues[i].ID < b.ID {
+					bookValue := isulocker.NewValue(GetBookResponse{
+						Book:    bookValues[i],
+						Lending: false,
+					}, "book")
+					bookCache.Store(bookValues[i].ID, bookValue)
+					newBooks = append(newBooks, bookValue)
+					i++
+				}
+				newBooks = append(newBooks, book)
 			})
+		}
 
-			return ok
-		})
+		for ; i < len(bookValues); i++ {
+			bookValue := isulocker.NewValue(GetBookResponse{
+				Book:    bookValues[i],
+				Lending: false,
+			}, "book")
+			bookCache.Store(bookValues[i].ID, bookValue)
+			newBooks = append(newBooks, bookValue)
+		}
 
-		return books
+		return newBooks
 	})
 
 	return c.JSON(http.StatusCreated, res)
