@@ -327,10 +327,11 @@ func generateQRCode(id string, w io.Writer) error {
 		 - エラー訂正レベルM (15%)
 	*/
 	cmd := exec.
-		Command("qrencode", "-o", "-", "-t", "PNG", "-s", "1", "-v", "6", "--strict-version", "-l", "M", encryptedID)
+		Command("qrencode", "-o", "-", "-t", "PNG", "-s", "1", "-v", "6", "--strict-version", "-l", "M")
 	if err != nil {
 		return err
 	}
+	cmd.Stdin = strings.NewReader(encryptedID)
 	r, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
