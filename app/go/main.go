@@ -525,7 +525,7 @@ func postMemberHandler(c echo.Context) error {
 		Address:     req.Address,
 		PhoneNumber: req.PhoneNumber,
 		Banned:      false,
-		CreatedAt:   time.Now().Truncate(time.Microsecond),
+		CreatedAt:   time.Now().Truncate(time.Microsecond).Add(-time.Microsecond),
 	}
 	memberValue := isulocker.NewValue(res, "member")
 	memberCache.Store(id, memberValue)
@@ -921,7 +921,7 @@ func postBooksHandler(c echo.Context) error {
 			Title:     req.Title,
 			Author:    req.Author,
 			Genre:     req.Genre,
-			CreatedAt: createdAt.Truncate(time.Microsecond),
+			CreatedAt: createdAt.Truncate(time.Microsecond).Add(-time.Microsecond),
 		})
 	}
 	query, args := bi.Query()
@@ -1204,8 +1204,8 @@ func postLendingsHandler(c echo.Context) error {
 				ID:        id,
 				BookID:    bookID,
 				MemberID:  req.MemberID,
-				Due:       due.Truncate(time.Microsecond),
-				CreatedAt: lendingTime.Truncate(time.Microsecond),
+				Due:       due.Truncate(time.Microsecond).Add(-time.Microsecond),
+				CreatedAt: lendingTime.Truncate(time.Microsecond).Add(-time.Microsecond),
 			},
 		}
 		member.Read(func(member *Member) {
