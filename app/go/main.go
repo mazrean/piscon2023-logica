@@ -249,6 +249,26 @@ func initQRCode(initialize bool) error {
 		*s = newS
 	})
 
+	idMap := make(map[string]struct{})
+	for _, id := range ids {
+		idMap[id] = struct{}{}
+	}
+
+	files, err := os.ReadDir(qrCodeDirName)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if _, ok := idMap[file.Name()]; !ok {
+			err = os.Remove(filepath.Join(qrCodeDirName, file.Name()))
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+		}
+	}
+
 	for _, id := range ids {
 		err = func() error {
 			_, err := os.Stat(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
