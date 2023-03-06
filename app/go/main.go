@@ -1013,6 +1013,52 @@ func getBooksHandler(c echo.Context) error {
 		Books: make([]GetBookResponse, 0, bookPageLimit),
 		Total: 0,
 	}
+
+	if genre != "" {
+		intGenre, err := strconv.Atoi(genre)
+		if err != nil {
+			log.Printf("failed to convert genre to int: %s\n", err)
+		}
+		if intGenre < 0 || intGenre > 9 {
+			return echo.NewHTTPError(http.StatusBadRequest, "genre is invalid")
+		}
+
+		if title != "" || author != "" {
+			bookGenreSliceCaches[intGenre].Range(func(i int, book *isulocker.Value[GetBookResponse]) bool {
+				book.Read(func(book *GetBookResponse) {
+					if title != "" {
+						if !strings.Contains(book.Title, title) {
+							return
+						}
+					}
+					if author != "" {
+						if !strings.Contains(book.Author, author) {
+							return
+						}
+					}
+
+					if res.Total >= (page-1)*bookPageLimit && len(res.Books) < bookPageLimit {
+						res.Books = append(res.Books, *book)
+					}
+					res.Total++
+				})
+
+				return true
+			})
+		} else {
+			bookGenreSliceCaches[intGenre].Slice((page-1)*bookPageLimit, page*bookPageLimit, func(book []*isulocker.Value[GetBookResponse]) {
+				for _, book := range book {
+					book.Read(func(book *GetBookResponse) {
+						res.Books = append(res.Books, *book)
+					})
+				}
+			})
+			res.Total = bookGenreSliceCaches[intGenre].Len()
+		}
+
+		return c.JSON(http.StatusOK, res)
+	}
+
 	bookSliceCache.Range(func(i int, book *isulocker.Value[GetBookResponse]) bool {
 		book.Read(func(book *GetBookResponse) {
 			if genre != "" {
@@ -1050,8 +1096,9 @@ func getBooksHandler(c echo.Context) error {
 }
 
 var (
-	bookCache      = isucache.NewAtomicMap[string, *isulocker.Value[GetBookResponse]]("book")
-	bookSliceCache = isucache.NewSlice("book_slice", make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
+	bookCache            = isucache.NewAtomicMap[string, *isulocker.Value[GetBookResponse]]("book")
+	bookSliceCache       = isucache.NewSlice("book_slice", make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
+	bookGenreSliceCaches [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]
 )
 
 func initBookCache() error {
@@ -1063,10 +1110,16 @@ func initBookCache() error {
 		return err
 	}
 
+	bookGenreSliceCaches = [10]*isucache.Slice[*isulocker.Value[GetBookResponse]]{}
+	for i := 0; i < 10; i++ {
+		bookGenreSliceCaches[i] = isucache.NewSlice(fmt.Sprintf("book_genre_%d", i), make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
+	}
+
 	for _, book := range books {
 		bookValue := isulocker.NewValue(book, "book")
 		bookCache.Store(book.ID, bookValue)
 		bookSliceCache.Append(bookValue)
+		bookGenreSliceCaches[book.Genre].Append(bookValue)
 	}
 
 	return nil
