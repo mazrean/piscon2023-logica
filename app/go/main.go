@@ -896,6 +896,8 @@ func postBooksHandler(c echo.Context) error {
 	res := []Book{}
 	createdAt := time.Now()
 
+	bookGenres := [10][]Book{}
+
 	bi := query.NewBulkInsert("book", "`id`, `title`, `author`, `genre`, `created_at`", "(?, ?, ?, ?, ?)")
 	for _, req := range reqSlice {
 		if req.Title == "" || req.Author == "" {
@@ -917,13 +919,15 @@ func postBooksHandler(c echo.Context) error {
 		})
 
 		bi.Add(id, req.Title, req.Author, req.Genre, createdAt)
-		res = append(res, Book{
+		book := Book{
 			ID:        id,
 			Title:     req.Title,
 			Author:    req.Author,
 			Genre:     req.Genre,
 			CreatedAt: createdAt,
-		})
+		}
+		res = append(res, book)
+		bookGenres[req.Genre] = append(bookGenres[req.Genre], book)
 	}
 	query, args := bi.Query()
 	_, err := db.ExecContext(c.Request().Context(), query, args...)
@@ -967,6 +971,47 @@ func postBooksHandler(c echo.Context) error {
 
 		return newBooks
 	})
+
+	for i, bookValues := range bookGenres {
+		if len(bookValues) == 0 {
+			continue
+		}
+
+		sort.Slice(bookValues, func(i, j int) bool {
+			return bookValues[i].ID < bookValues[j].ID
+		})
+
+		bookGenreSliceCaches[i].Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
+			newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
+
+			i := 0
+			for _, book := range books {
+				book.Read(func(b *GetBookResponse) {
+					for i < len(bookValues) && bookValues[i].ID < b.ID {
+						bookValue := isulocker.NewValue(GetBookResponse{
+							Book:    bookValues[i],
+							Lending: false,
+						}, "book")
+						bookCache.Store(bookValues[i].ID, bookValue)
+						newBooks = append(newBooks, bookValue)
+						i++
+					}
+					newBooks = append(newBooks, book)
+				})
+			}
+
+			for ; i < len(bookValues); i++ {
+				bookValue := isulocker.NewValue(GetBookResponse{
+					Book:    bookValues[i],
+					Lending: false,
+				}, "book")
+				bookCache.Store(bookValues[i].ID, bookValue)
+				newBooks = append(newBooks, bookValue)
+			}
+
+			return newBooks
+		})
+	}
 
 	return c.JSON(http.StatusCreated, res)
 }
