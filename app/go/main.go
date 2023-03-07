@@ -912,27 +912,15 @@ func initPostBookChan() {
 		for {
 			newBook := <-postBookChan
 
-			bookValues := []Book{newBook}
-		LOOP1:
-			for {
-				select {
-				case newBook, ok := <-postBookChan:
-					if !ok {
-						break LOOP1
-					}
-					bookValues = append(bookValues, newBook)
-				default:
-					break LOOP1
-				}
-			}
-
 			var (
 				thisCond *sync.Cond
 				thisChan chan Book
 				thisEnd  *bool
 			)
 			func() {
-				postBookLock.Lock()
+				for !postBookLock.TryLock() {
+					time.Sleep(1 * time.Millisecond)
+				}
 				defer postBookLock.Unlock()
 
 				thisChan = postBookChan
@@ -946,16 +934,17 @@ func initPostBookChan() {
 				endPointer = &end
 			}()
 
-		LOOP2:
+			bookValues := []Book{newBook}
+		LOOP:
 			for {
 				select {
 				case newBook, ok := <-thisChan:
 					if !ok {
-						break LOOP2
+						break
 					}
 					bookValues = append(bookValues, newBook)
 				default:
-					break LOOP2
+					break LOOP
 				}
 			}
 			close(thisChan)
