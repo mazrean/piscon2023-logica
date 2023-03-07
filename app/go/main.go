@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -113,8 +112,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	initPostBookChan()
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
@@ -581,7 +578,7 @@ func getMembersHandler(c echo.Context) error {
 
 	start := (page - 1) * memberPageLimit
 	end := start + memberPageLimit
-	if start >= memberIDCache.Len() {
+	if (page-1)*memberPageLimit >= memberIDCache.Len() {
 		return echo.NewHTTPError(http.StatusNotFound, "no members to show in this page")
 	}
 	if end > memberIDCache.Len() {
@@ -887,82 +884,6 @@ type PostBooksRequest struct {
 	Genre  Genre  `json:"genre"`
 }
 
-var (
-	cond         = sync.NewCond(&sync.Mutex{})
-	postBookChan = make(chan Book, 10000)
-	postBookLock = sync.RWMutex{}
-)
-
-func initPostBookChan() {
-	go func() {
-		for {
-			newBook := <-postBookChan
-
-			var (
-				thisCond *sync.Cond
-				thisChan chan Book
-			)
-			bookValues := []Book{newBook}
-			func() {
-				postBookLock.Lock()
-				defer postBookLock.Unlock()
-
-				thisChan = postBookChan
-				postBookChan = make(chan Book, 10000)
-
-				thisCond = cond
-				cond = sync.NewCond(&sync.Mutex{})
-			}()
-
-			for {
-				newBook, ok := <-thisChan
-				if !ok {
-					break
-				}
-
-				bookValues = append(bookValues, newBook)
-			}
-			close(thisChan)
-
-			sort.Slice(bookValues, func(i, j int) bool {
-				return bookValues[i].ID < bookValues[j].ID
-			})
-
-			bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
-				newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
-
-				i := 0
-				for _, book := range books {
-					book.Read(func(b *GetBookResponse) {
-						for i < len(bookValues) && bookValues[i].ID < b.ID {
-							bookValue := isulocker.NewValue(GetBookResponse{
-								Book:    bookValues[i],
-								Lending: false,
-							}, "book")
-							bookCache.Store(bookValues[i].ID, bookValue)
-							newBooks = append(newBooks, bookValue)
-							i++
-						}
-						newBooks = append(newBooks, book)
-					})
-				}
-
-				for ; i < len(bookValues); i++ {
-					bookValue := isulocker.NewValue(GetBookResponse{
-						Book:    bookValues[i],
-						Lending: false,
-					}, "book")
-					bookCache.Store(bookValues[i].ID, bookValue)
-					newBooks = append(newBooks, bookValue)
-				}
-
-				return newBooks
-			})
-			thisCond.Broadcast()
-		}
-	}()
-}
-
 // 蔵書を登録 (複数札を一気に登録)
 func postBooksHandler(c echo.Context) error {
 	var reqSlice []PostBooksRequest
@@ -1008,23 +929,42 @@ func postBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	var thisCond *sync.Cond
-	func() {
-		postBookLock.RLock()
-		defer postBookLock.RUnlock()
+	bookValues := make([]Book, len(res))
+	copy(bookValues, res)
+	sort.Slice(bookValues, func(i, j int) bool {
+		return bookValues[i].ID < bookValues[j].ID
+	})
 
-		for _, book := range res {
-			postBookChan <- book
+	bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
+		newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
+
+		i := 0
+		for _, book := range books {
+			book.Read(func(b *GetBookResponse) {
+				for i < len(bookValues) && bookValues[i].ID < b.ID {
+					bookValue := isulocker.NewValue(GetBookResponse{
+						Book:    bookValues[i],
+						Lending: false,
+					}, "book")
+					bookCache.Store(bookValues[i].ID, bookValue)
+					newBooks = append(newBooks, bookValue)
+					i++
+				}
+				newBooks = append(newBooks, book)
+			})
 		}
-		thisCond = cond
-	}()
 
-	func() {
-		thisCond.L.Lock()
-		defer thisCond.L.Unlock()
+		for ; i < len(bookValues); i++ {
+			bookValue := isulocker.NewValue(GetBookResponse{
+				Book:    bookValues[i],
+				Lending: false,
+			}, "book")
+			bookCache.Store(bookValues[i].ID, bookValue)
+			newBooks = append(newBooks, bookValue)
+		}
 
-		thisCond.Wait()
-	}()
+		return newBooks
+	})
 
 	return c.JSON(http.StatusCreated, res)
 }
