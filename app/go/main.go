@@ -888,6 +888,7 @@ type PostBooksRequest struct {
 }
 
 var (
+	endPointer    *bool
 	postWaitCount = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "post_wait_count",
 		Help: "The total number of waiting post requests",
@@ -897,6 +898,11 @@ var (
 	postBookLock = sync.RWMutex{}
 )
 
+func init() {
+	end := false
+	endPointer = &end
+}
+
 func initPostBookChan() {
 	go func() {
 		for {
@@ -905,6 +911,7 @@ func initPostBookChan() {
 			var (
 				thisCond *sync.Cond
 				thisChan chan Book
+				thisEnd  *bool
 			)
 			func() {
 				postBookLock.Lock()
@@ -915,6 +922,10 @@ func initPostBookChan() {
 
 				thisCond = cond
 				cond = sync.NewCond(&sync.Mutex{})
+
+				thisEnd = endPointer
+				end := false
+				endPointer = &end
 			}()
 
 			bookValues := []Book{newBook}
@@ -963,6 +974,7 @@ func initPostBookChan() {
 				return newBooks
 			})
 
+			*thisEnd = true
 			thisCond.Broadcast()
 		}
 	}()
@@ -1013,7 +1025,10 @@ func postBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	var thisCond *sync.Cond
+	var (
+		thisCond *sync.Cond
+		thisEnd  *bool
+	)
 	func() {
 		postBookLock.RLock()
 		defer postBookLock.RUnlock()
@@ -1022,6 +1037,7 @@ func postBooksHandler(c echo.Context) error {
 			postBookChan <- book
 		}
 		thisCond = cond
+		thisEnd = endPointer
 	}()
 
 	postWaitCount.Inc()
@@ -1030,7 +1046,9 @@ func postBooksHandler(c echo.Context) error {
 		thisCond.L.Lock()
 		defer thisCond.L.Unlock()
 
-		thisCond.Wait()
+		for !*thisEnd {
+			thisCond.Wait()
+		}
 	}()
 
 	return c.JSON(http.StatusCreated, res)
