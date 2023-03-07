@@ -888,10 +888,6 @@ type PostBooksRequest struct {
 }
 
 var (
-	postWaitCount = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "post_wait_count",
-		Help: "The total number of waiting post requests",
-	})
 	cond         = sync.NewCond(&sync.Mutex{})
 	postBookChan = make(chan Book, 10000)
 	postBookLock = sync.RWMutex{}
@@ -906,6 +902,7 @@ func initPostBookChan() {
 				thisCond *sync.Cond
 				thisChan chan Book
 			)
+			bookValues := []Book{newBook}
 			func() {
 				postBookLock.Lock()
 				defer postBookLock.Unlock()
@@ -917,7 +914,6 @@ func initPostBookChan() {
 				cond = sync.NewCond(&sync.Mutex{})
 			}()
 
-			bookValues := []Book{newBook}
 			for {
 				newBook, ok := <-thisChan
 				if !ok {
@@ -962,7 +958,6 @@ func initPostBookChan() {
 
 				return newBooks
 			})
-
 			thisCond.Broadcast()
 		}
 	}()
@@ -1024,8 +1019,6 @@ func postBooksHandler(c echo.Context) error {
 		thisCond = cond
 	}()
 
-	postWaitCount.Inc()
-	defer postWaitCount.Dec()
 	func() {
 		thisCond.L.Lock()
 		defer thisCond.L.Unlock()
