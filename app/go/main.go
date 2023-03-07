@@ -244,6 +244,10 @@ func initQRCode(initialize bool) error {
 
 	timer := time.NewTicker(1*time.Millisecond + 5*time.Microsecond)
 	idPool.Write(func(s *[]string) {
+		for _, id := range *s {
+			ids = append(ids, id)
+		}
+
 		for i := len(*s); i < 25000; i++ {
 			<-timer.C
 			id := generateID()
