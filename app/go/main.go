@@ -929,13 +929,17 @@ func initPostBookChan() {
 			}()
 
 			bookValues := []Book{newBook}
+		LOOP:
 			for {
-				newBook, ok := <-thisChan
-				if !ok {
-					break
+				select {
+				case newBook, ok := <-thisChan:
+					if !ok {
+						break
+					}
+					bookValues = append(bookValues, newBook)
+				default:
+					break LOOP
 				}
-
-				bookValues = append(bookValues, newBook)
 			}
 			close(thisChan)
 
