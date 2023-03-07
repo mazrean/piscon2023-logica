@@ -127,12 +127,12 @@ Domain Models
 
 // 会員
 type Member struct {
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	ID          string    `json:"id" db:"id"`
 	Name        string    `json:"name" db:"name"`
 	Address     string    `json:"address" db:"address"`
 	PhoneNumber string    `json:"phone_number" db:"phone_number"`
 	Banned      bool      `json:"banned" db:"banned"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
 // 図書分類
@@ -154,20 +154,20 @@ const (
 
 // 蔵書
 type Book struct {
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	ID        string    `json:"id" db:"id"`
 	Title     string    `json:"title" db:"title"`
 	Author    string    `json:"author" db:"author"`
 	Genre     Genre     `json:"genre" db:"genre"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 // 貸出記録
 type Lending struct {
+	Due       time.Time `json:"due" db:"due"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	ID        string    `json:"id" db:"id"`
 	MemberID  string    `json:"member_id" db:"member_id"`
 	BookID    string    `json:"book_id" db:"book_id"`
-	Due       time.Time `json:"due" db:"due"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 /*
