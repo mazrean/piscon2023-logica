@@ -893,10 +893,6 @@ var (
 		Name: "post_wait_count",
 		Help: "The total number of waiting post requests",
 	})
-	postQueueCount = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "post_queue_count",
-		Help: "The total number of queued post requests",
-	})
 	cond         = sync.NewCond(&sync.Mutex{})
 	postBookChan = make(chan Book, 10000)
 	postBookLock = sync.RWMutex{}
@@ -918,9 +914,7 @@ func initPostBookChan() {
 				thisEnd  *bool
 			)
 			func() {
-				for !postBookLock.TryLock() {
-					time.Sleep(1 * time.Millisecond)
-				}
+				postBookLock.Lock()
 				defer postBookLock.Unlock()
 
 				thisChan = postBookChan
