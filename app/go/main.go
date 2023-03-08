@@ -369,7 +369,10 @@ func (j pngEncoder) Encode(w io.Writer, img image.Image) error {
 
 // QRコードを生成
 func generateQRCode(id string, w io.Writer) error {
-	encryptedID := id
+	encryptedID, err := encrypt(id)
+	if err != nil {
+		return err
+	}
 
 	/*
 		生成するQRコードの仕様
@@ -380,6 +383,9 @@ func generateQRCode(id string, w io.Writer) error {
 	*/
 	cmd := exec.
 		Command("qrencode", "-o", "-", "-t", "PNG", "-s", "1", "-v", "6", "--strict-version", "-l", "M")
+	if err != nil {
+		return err
+	}
 	cmd.Stdin = strings.NewReader(encryptedID)
 	r, err := cmd.StdoutPipe()
 	if err != nil {
