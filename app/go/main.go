@@ -242,14 +242,14 @@ func initQRCode(initialize bool) error {
 		return err
 	}
 
-	timer := time.NewTicker(1*time.Millisecond + 5*time.Microsecond)
 	idPool.Write(func(s *[]string) {
-		for i := len(*s); i < 25000; i++ {
-			<-timer.C
+		newS := make([]string, 0, 25000)
+		for i := 0; i < 25000; i++ {
 			id := generateID()
-			*s = append(*s, id)
+			newS = append(newS, id)
 			ids = append(ids, id)
 		}
+		*s = newS
 		poolLen.Set(float64(len(*s)))
 	})
 
@@ -929,8 +929,42 @@ func postBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	bookValues := make([]*isulocker.Value[GetBookResponse], 0, len(res))
-	bookSliceCache.Append(bookValues...)
+	bookValues := make([]Book, len(res))
+	copy(bookValues, res)
+	sort.Slice(bookValues, func(i, j int) bool {
+		return bookValues[i].ID < bookValues[j].ID
+	})
+
+	bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
+		newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
+
+		i := 0
+		for _, book := range books {
+			book.Read(func(b *GetBookResponse) {
+				for i < len(bookValues) && bookValues[i].ID < b.ID {
+					bookValue := isulocker.NewValue(GetBookResponse{
+						Book:    bookValues[i],
+						Lending: false,
+					}, "book")
+					bookCache.Store(bookValues[i].ID, bookValue)
+					newBooks = append(newBooks, bookValue)
+					i++
+				}
+				newBooks = append(newBooks, book)
+			})
+		}
+
+		for ; i < len(bookValues); i++ {
+			bookValue := isulocker.NewValue(GetBookResponse{
+				Book:    bookValues[i],
+				Lending: false,
+			}, "book")
+			bookCache.Store(bookValues[i].ID, bookValue)
+			newBooks = append(newBooks, bookValue)
+		}
+
+		return newBooks
+	})
 
 	return c.JSON(http.StatusCreated, res)
 }
