@@ -219,7 +219,8 @@ func decrypt(cipherText string) (string, error) {
 }
 
 const (
-	qrCodeDirName = "../images/qr"
+	qrCodeDirName     = "../images/qr"
+	initQRCodeDirName = "../images/qr-init"
 )
 
 var (
@@ -369,7 +370,10 @@ func (j pngEncoder) Encode(w io.Writer, img image.Image) error {
 
 // QRコードを生成
 func generateQRCode(id string, w io.Writer) error {
-	encryptedID := base64.URLEncoding.EncodeToString([]byte(id))
+	encryptedID, err := encrypt(id)
+	if err != nil {
+		return err
+	}
 
 	/*
 		生成するQRコードの仕様
@@ -380,6 +384,9 @@ func generateQRCode(id string, w io.Writer) error {
 	*/
 	cmd := exec.
 		Command("qrencode", "-o", "-", "-t", "PNG", "-s", "1", "-v", "6", "--strict-version", "-l", "M")
+	if err != nil {
+		return err
+	}
 	cmd.Stdin = strings.NewReader(encryptedID)
 	r, err := cmd.StdoutPipe()
 	if err != nil {
@@ -551,12 +558,22 @@ func postMemberHandler(c echo.Context) error {
 		}
 	})
 
-	_, err := db.ExecContext(c.Request().Context(),
+	tx, err := db.BeginTxx(c.Request().Context(), nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	_, err = tx.ExecContext(c.Request().Context(),
 		"INSERT INTO `member` (`id`, `name`, `address`, `phone_number`, `banned`, `created_at`) VALUES (?, ?, ?, ?, false, ?)",
 		id, req.Name, req.Address, req.PhoneNumber, time.Now())
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+
+	_ = tx.Commit()
 
 	res := Member{
 		ID:          id,
