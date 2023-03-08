@@ -987,12 +987,14 @@ func postBooksHandler(c echo.Context) error {
 	}
 
 	bookValues := make([]*isulocker.Value[GetBookResponse], 0, len(res))
-	bookSliceCache.Append(bookValues...)
-	for _, book := range bookValues {
-		book.Read(func(b *GetBookResponse) {
-			bookCache.Store(b.ID, book)
-		})
+	for _, book := range res {
+		bookValue := isulocker.NewValue(GetBookResponse{
+			Book:    book,
+			Lending: false,
+		}, "book")
+		bookValues = append(bookValues, bookValue)
 	}
+	bookSliceCache.Append(bookValues...)
 
 	return c.JSON(http.StatusCreated, res)
 }
