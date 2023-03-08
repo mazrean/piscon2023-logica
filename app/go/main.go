@@ -993,6 +993,7 @@ func postBooksHandler(c echo.Context) error {
 			Lending: false,
 		}, "book")
 		bookValues = append(bookValues, bookValue)
+		bookCache.Store(book.ID, bookValue)
 	}
 	bookSliceCache.Append(bookValues...)
 
