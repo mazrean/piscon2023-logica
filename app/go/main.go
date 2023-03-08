@@ -963,42 +963,16 @@ func postBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	bookValues := make([]Book, len(res))
-	copy(bookValues, res)
-	sort.Slice(bookValues, func(i, j int) bool {
-		return bookValues[i].ID < bookValues[j].ID
-	})
-
-	bookSliceCache.Edit(func(books []*isulocker.Value[GetBookResponse]) []*isulocker.Value[GetBookResponse] {
-		newBooks := make([]*isulocker.Value[GetBookResponse], 0, len(books)+len(bookValues))
-
-		i := 0
-		for _, book := range books {
-			book.Read(func(b *GetBookResponse) {
-				for i < len(bookValues) && bookValues[i].ID < b.ID {
-					bookValue := isulocker.NewValue(GetBookResponse{
-						Book:    bookValues[i],
-						Lending: false,
-					}, "book")
-					bookCache.Store(bookValues[i].ID, bookValue)
-					newBooks = append(newBooks, bookValue)
-					i++
-				}
-				newBooks = append(newBooks, book)
-			})
-		}
-
-		for ; i < len(bookValues); i++ {
-			bookValue := isulocker.NewValue(GetBookResponse{
-				Book:    bookValues[i],
-				Lending: false,
-			}, "book")
-			bookCache.Store(bookValues[i].ID, bookValue)
-			newBooks = append(newBooks, bookValue)
-		}
-
-		return newBooks
-	})
+	bookValues := make([]*isulocker.Value[GetBookResponse], 0, len(res))
+	for _, book := range res {
+		bookValue := isulocker.NewValue(GetBookResponse{
+			Book:    book,
+			Lending: false,
+		}, "book")
+		bookCache.Store(book.ID, bookValue)
+		bookValues = append(bookValues, bookValue)
+	}
+	bookSliceCache.Append(bookValues...)
 
 	return c.JSON(http.StatusCreated, res)
 }
