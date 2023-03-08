@@ -24,7 +24,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	_ "github.com/mazrean/isucon-go-tools"
 	isucache "github.com/mazrean/isucon-go-tools/cache"
 	isudb "github.com/mazrean/isucon-go-tools/db"
@@ -67,7 +66,7 @@ func main() {
 	}
 
 	e := isuhttp.EchoSetting(echo.New())
-	e.Use(middleware.Logger())
+	//e.Use(middleware.Logger())
 
 	api := e.Group("/api")
 	{
