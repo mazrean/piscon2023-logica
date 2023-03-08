@@ -369,7 +369,7 @@ func (j pngEncoder) Encode(w io.Writer, img image.Image) error {
 
 // QRコードを生成
 func generateQRCode(id string, w io.Writer) error {
-	encryptedID := base64.URLEncoding.EncodeToString([]byte(id))
+	encryptedID := id
 
 	/*
 		生成するQRコードの仕様
