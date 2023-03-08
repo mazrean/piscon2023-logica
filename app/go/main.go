@@ -242,6 +242,34 @@ func initQRCode(initialize bool) error {
 		return err
 	}
 
+	eg := &errgroup.Group{}
+
+	for _, id := range ids {
+		id := id
+		eg.Go(func() error {
+			_, err := os.Stat(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+
+			dstF, err := os.Create(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
+			if err != nil {
+				return err
+			}
+			defer dstF.Close()
+
+			err = generateQRCode(id, dstF)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	}
+
 	timer := time.NewTicker(1 * time.Millisecond)
 	defer timer.Stop()
 	idPool.Write(func(s *[]string) {
@@ -251,6 +279,29 @@ func initQRCode(initialize bool) error {
 			id := generateID()
 			newS = append(newS, id)
 			ids = append(ids, id)
+
+			eg.Go(func() error {
+				_, err := os.Stat(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
+				if err == nil {
+					return nil
+				}
+				if !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+
+				dstF, err := os.Create(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
+				if err != nil {
+					return err
+				}
+				defer dstF.Close()
+
+				err = generateQRCode(id, dstF)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			})
 		}
 		*s = newS
 		poolLen.Set(float64(len(*s)))
@@ -276,29 +327,9 @@ func initQRCode(initialize bool) error {
 		}
 	}
 
-	for _, id := range ids {
-		err = func() error {
-			_, err := os.Stat(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
-			if err == nil {
-				return nil
-			}
-			if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-
-			dstF, err := os.Create(filepath.Join(qrCodeDirName, fmt.Sprintf("%s.png", id)))
-			if err != nil {
-				return err
-			}
-			defer dstF.Close()
-
-			err = generateQRCode(id, dstF)
-			if err != nil {
-				return err
-			}
-
-			return nil
-		}()
+	err = eg.Wait()
+	if err != nil {
+		return err
 	}
 
 	return err
