@@ -462,8 +462,8 @@ Members API
 
 var (
 	memberCache     = isucache.NewAtomicMap[string, *isulocker.Value[Member]]("member")
-	memberNameCache = isucache.NewSlice("member_name", make([]*isulocker.Value[Member], 0, 5000), 5000)
-	memberIDCache   = isucache.NewSlice("member_id", make([]*isulocker.Value[Member], 0, 5000), 5000)
+	memberNameCache = isucache.NewSlice[*isulocker.Value[Member]]("member_name", 5000)
+	memberIDCache   = isucache.NewSlice[*isulocker.Value[Member]]("member_id", 5000)
 )
 
 func initMemberCache() error {
@@ -563,19 +563,7 @@ func postMemberHandler(c echo.Context) error {
 	}
 	memberValue := isulocker.NewValue(res, "member")
 	memberCache.Store(id, memberValue)
-	memberIDCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
-		members = append(members, memberValue)
-		sort.SliceStable(members, func(i, j int) bool {
-			var result bool
-			members[i].Read(func(memberI *Member) {
-				members[j].Read(func(memberJ *Member) {
-					result = memberI.ID < memberJ.ID
-				})
-			})
-			return result
-		})
-		return members
-	})
+	memberIDCache.Append(memberValue)
 	memberNameCache.Edit(func(members []*isulocker.Value[Member]) []*isulocker.Value[Member] {
 		members = append(members, memberValue)
 		sort.SliceStable(members, func(i, j int) bool {
@@ -1059,7 +1047,7 @@ func getBooksHandler(c echo.Context) error {
 
 var (
 	bookCache      = isucache.NewAtomicMap[string, *isulocker.Value[GetBookResponse]]("book")
-	bookSliceCache = isucache.NewSlice("book_slice", make([]*isulocker.Value[GetBookResponse], 0, 20000), 20000)
+	bookSliceCache = isucache.NewNoDeleteSlice[*isulocker.Value[GetBookResponse]]("book_slice", 30000, 600)
 )
 
 func initBookCache() error {
